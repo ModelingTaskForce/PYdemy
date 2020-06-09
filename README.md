@@ -25,7 +25,7 @@ $ python setup.py install
 - Alan A. S. Amad<sup>1</sup> [<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/6801813581350104)
 - Daniel C. P. Jorge<sup>2</sup> [<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/0919005143796420)
 - Juliane F. Oliveira<sup>3,4</sup> [<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/1597320074497161)
-- Aureliano S. S. Paiva<sup>2</sup> [<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/0632668026047114)
+- Aureliano S. S. Paiva<sup>3</sup> [<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/0632668026047114)
 - Pablo Ivan P. Ramos<sup>3</sup> [<img src="https://ppgrn.ufms.br/files/2019/11/google-academco.png" width="15" height="15">](https://scholar.google.com/citations?user=6-DJ7XwAAAAJ)[<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/8669778446107111)
 - Moreno S. Rodrigues<sup>5</sup> [<img src="https://ppgrn.ufms.br/files/2019/11/google-academco.png" width="15" height="15">](https://scholar.google.com.br/citations?user=Cd_LS0wAAAAJ)[<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/3986188118296071)
 - Nivea B. da Silva<sup>3</sup> [<img src="https://fauufpa.files.wordpress.com/2010/05/plataforma-lattes1.jpg" width="15" height="15">](http://lattes.cnpq.br/2365687224418330)
