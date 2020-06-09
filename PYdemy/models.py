@@ -16,15 +16,19 @@ import pyswarms as ps
 from pyswarms.utils.plotters import plot_cost_history
 import pickle as pk
 from numbers import Number
+import copy
 
 class Models:
-    def __init__(self):
+    def __init__(self,popSize,nCores=None):
         self.isFit=False
         self.isBetaChange = False
         self.isPredict = False
         self.isCI = False
+        self.isRT = False
+        self.N = popSize
+        self.nCores = nCores
     
-    def __validadeVar(var,name):
+    def __validadeVar(self,var,name):
         if len(var)<3:
             print('\nthe '+name+' variable has les than 3 elements!\n')
             return False
@@ -33,9 +37,12 @@ class Models:
                 print('\nthe elemente '+str(n)+' in '+name+' variable is not numeric!\n')
                 return False
         if name=='y':
-            flag = False
-            if(var == sorted(var)): 
-                flag = True
+            flag = 0
+            i = 1
+            while i < len(var): 
+                if(var[i] < var[i - 1]): 
+                    flag = 1
+                i += 1
             if flag:
                 print('\nthe y is not sorted!\n')
                 return False
@@ -58,9 +65,9 @@ class Models:
             results.append(np.random.multinomial(n = sum(series), pvals = series/sum(series)))
         return np.array(results)
     
-    def __getConfidenceInterval(series, length, level):
+    def __getConfidenceInterval(series, level):
         series = np.array(series)
-    
+        length = len(series[0])
         #Compute mean value
         meanValue = [np.mean(series[:,i]) for i in range(0,length)]
 
@@ -115,12 +122,8 @@ class Models:
         model = pk.load(file)
         return model
 
-class SIR:
+class SIR(Models):
     ''' SIR Model'''
-    def __init__(self,tamanhoPop,numeroProcessadores=None):
-        super(SIR,self).__init__()
-        self.N = tamanhoPop
-        self.numeroProcessadores = numeroProcessadores
     
     def __cal_EDO(self,x,beta,gamma):
             ND = len(x)-1
@@ -218,7 +221,8 @@ class SIR:
         
         bound => (lista_min_bound, lista_max_bound)
         '''
-        if not self.__validate(y):
+       
+        if not self._Models__validadeVar(y,'y'):
             return
         x = range(1,len(y)+1)
         self.isBetaChange = isBetaChange
@@ -262,9 +266,9 @@ class SIR:
                 
         cost = pos = None
         if isBetaChange:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.numeroProcessadores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
         else:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.numeroProcessadores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
             self.beta = pos[0]
             self.gamma = pos[1]
         if isBetaChange:
@@ -330,19 +334,19 @@ class SIR:
             print('\nModels is not fitted\n')
             return None
         if self.isCI:
-            self.lypred = self.__getConfidenceInterval(self.__bypred, length, level)
-            self.lS = self.__getConfidenceInterval(self.__bS, length, level)
-            self.lI = self.__getConfidenceInterval(self.__bI, length, level)
-            self.lR = self.__getConfidenceInterval(self.__bR, length, level)
+            self.lypred = self._Models__getConfidenceInterval(self.__bypred, level)
+            self.lS = self._Models__getConfidenceInterval(self.__bS, level)
+            self.lI = self._Models__getConfidenceInterval(self.__bI, level)
+            self.lR = self._Models__getConfidenceInterval(self.__bR, level)
         
-            if isBetaChange:
-                self.lDayBetaChange=self.__getConfidenceInterval(self.__bDayBetaChange, length, level)
-                self.lBeta1 = self.__getConfidenceInterval(self.__bBeta1, length, level)
-                self.lBeta2 = self.__getConfidenceInterval(self.__bBeta2, length, level)
+            if self.isBetaChange:
+                self.lDayBetaChange=self._Models__getConfidenceInterval(self.__bDayBetaChange, level)
+                self.lBeta1 = self._Models__getConfidenceInterval(self.__bBeta1, level)
+                self.lBeta2 = self._Models__getConfidenceInterval(self.__bBeta2, level)
             else:
-                self.lBeta = self.__getConfidenceInterval(self.__bBeta, length, level)
+                self.lBeta = self._Models__getConfidenceInterval(self.__bBeta, level)
             
-            self.lGamma = self.__getConfidenceInterval(self.__bGamma, length, level)
+            self.lGamma = self._Models__getConfidenceInterval(self.__bGamma, level)
             
         #Define empty lists to recive results
         self.__bypred = []
@@ -350,7 +354,7 @@ class SIR:
         self.__bI = []
         self.__bR = []
         
-        if isBetaChange:
+        if self.isBetaChange:
             self.__bDayBetaChange=[]
             self.__bBeta1 = []
             self.__bBeta2=[]
@@ -359,48 +363,44 @@ class SIR:
             
         self.__bGamma = []
         
-        casesSeries = self.__genBoot(self.y, times)
-        
+        casesSeries = self._Models__genBoot(self.y, times)
+        copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
-            self.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,p=self.p)
+            copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,p=self.p)
             if self.isPredict:
-                self.predict(self.predictNumDays)
+                copia.predict(self.predictNumDays)
             else:
-                self.predict(0)
+                copia.predict(0)
 
-            self.__bypred.append(self.ypred)
-            self.__bS.append(self.S)
-            self.__bI.append(self.I)
-            self.__bR.append(self.R)
-            if isBetaChange:
-                self.__bbeta1.append(self.beta1)
-                self.__bbeta2.append(self.beta2)
-                self.__bDayBetaChange.append(self.dayBetaChange)
+            self.__bypred.append(copia.ypred)
+            self.__bS.append(copia.S)
+            self.__bI.append(copia.I)
+            self.__bR.append(copia.R)
+            if self.isBetaChange:
+                self.__bbeta1.append(copia.beta1)
+                self.__bbeta2.append(copia.beta2)
+                self.__bDayBetaChange.append(copia.dayBetaChange)
             else:
-                self.__bbeta.append(self.beta)
-            self.__bgamma.append(self.gamma)            
+                self.__bbeta.append(copia.beta)
+            self.__bgamma.append(copia.gamma)            
         
-        self.lypred = self.__getConfidenceInterval(self.__bypred, length, level)
-        self.lS = self.__getConfidenceInterval(self.__bS, length, level)
-        self.lI = self.__getConfidenceInterval(self.__bI, length, level)
-        self.lR = self.__getConfidenceInterval(self.__bR, length, level)
+        self.lypred = self._Models__getConfidenceInterval(self.__bypred, level)
+        self.lS = self._Models__getConfidenceInterval(self.__bS, level)
+        self.lI = self._Models__getConfidenceInterval(self.__bI, level)
+        self.lR = self._Models__getConfidenceInterval(self.__bR, level)
         
-        if isBetaChange:
-            self.lDayBetaChange=self.__getConfidenceInterval(self.__bDayBetaChange, length, level)
-            self.lBeta1 = self.__getConfidenceInterval(self.__bBeta1, length, level)
-            self.lBeta2 = self.__getConfidenceInterval(self.__bBeta2, length, level)
+        if self.isBetaChange:
+            self.lDayBetaChange=self._Models__getConfidenceInterval(self.__bDayBetaChange, level)
+            self.lBeta1 = self._Models__getConfidenceInterval(self.__bBeta1, level)
+            self.lBeta2 = self._Models__getConfidenceInterval(self.__bBeta2, level)
         else:
-            self.lBeta = self.__getConfidenceInterval(self.__bBeta, length, level)
+            self.lBeta = self._Models__getConfidenceInterval(self.__bBeta, level)
             
-        self.lGamma = self.__getConfidenceInterval(self.__bGamma, length, level)
+        self.lGamma = self._Models__getConfidenceInterval(self.__bGamma, level)
         self.isCI=True
 
-class SEIR:
+class SEIR(Models):
     ''' SIR Model'''
-    def __init__(self,tamanhoPop,numeroProcessadores=None):
-        super(SEIR,self).__init__()
-        self.N = tamanhoPop
-        self.numeroProcessadores = numeroProcessadores
     
     def __cal_EDO(self,x,beta,gamma,mu,sigma):
             ND = len(x)-1
@@ -512,7 +512,7 @@ class SEIR:
         bound => (lista_min_bound, lista_max_bound)
         '''
         
-        if not self.__validate(y):
+        if not self._Models__validadeVar(y):
             return
         x = range(1,len(y)+1)
         self.y = y
@@ -521,28 +521,7 @@ class SEIR:
         self.R0 = 0
         self.E0 = 0
         self.mu = 1/(75.51*365)
-        # options = {'c1': 0.5, 'c2': 0.3, 'w': 0.9}
-        # if bound==None:
-        #     optimizer = ps.single.GeneralOptimizerPSO(n_particles=50, dimensions=3, options=options,topology=Star())
-        #     cost, pos = optimizer.optimize(self.__objectiveFunction, 500, x = x,y=y,mu=1/(75.51*365),n_processes=self.numeroProcessadores)
-        #     self.beta = pos[0]
-        #     self.gamma = pos[1]
-        #     self.mu = 1/(75.51*365)
-        #     self.sigma = pos[2]
-        #     self.x = x
-        #     self.rmse = cost
-        #     self.optimize = optimizer
-            
-        # else:
-        #     optimizer = ps.single.GeneralOptimizerPSO(n_particles=50, dimensions=3, options=options,bounds=bound,topology=Star())
-        #     cost, pos = optimizer.optimize(self.__objectiveFunction, 500, x = x,y=y,mu=1/(75.51*365),n_processes=self.numeroProcessadores)
-        #     self.beta = pos[0]
-        #     self.gamma = pos[1]
-        #     self.mu = 1/(75.51*365)
-        #     self.sigma = pos[2]
-        #     self.x = x
-        #     self.rmse = cost
-        #     self.optimize = optimizer
+
         self.isBetaChange = isBetaChange
         self.dayBetaChange = dayBetaChange
         self.y = y
@@ -581,9 +560,9 @@ class SEIR:
                 
         cost = pos = None
         if isBetaChange:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.numeroProcessadores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.nCores)
         else:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.numeroProcessadores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.nCores)
             self.beta = pos[0]
             self.gamma = pos[1]
             self.sigma = pos[2]
@@ -648,20 +627,20 @@ class SEIR:
             print('\nModels is not fitted\n')
             return None
         if self.isCI:
-            self.lypred = self.__getConfidenceInterval(self.__bypred, length, level)
-            self.lS = self.__getConfidenceInterval(self.__bS, length, level)
-            self.lE = self.__getConfidenceInterval(self.__bE, length, level)
-            self.lI = self.__getConfidenceInterval(self.__bI, length, level)
-            self.lR = self.__getConfidenceInterval(self.__bR, length, level)
+            self.lypred = self._Models__getConfidenceInterval(self.__bypred, level)
+            self.lS = self._Models__getConfidenceInterval(self.__bS, level)
+            self.lE = self._Models__getConfidenceInterval(self.__bE, level)
+            self.lI = self._Models__getConfidenceInterval(self.__bI, level)
+            self.lR = self._Models__getConfidenceInterval(self.__bR, level)
         
-            if isBetaChange:
-                self.lDayBetaChange=self.__getConfidenceInterval(self.__bDayBetaChange, length, level)
-                self.lBeta1 = self.__getConfidenceInterval(self.__bBeta1, length, level)
-                self.lBeta2 = self.__getConfidenceInterval(self.__bBeta2, length, level)
+            if self.isBetaChange:
+                self.lDayBetaChange=self._Models__getConfidenceInterval(self.__bDayBetaChange, level)
+                self.lBeta1 = self._Models__getConfidenceInterval(self.__bBeta1, level)
+                self.lBeta2 = self._Models__getConfidenceInterval(self.__bBeta2, level)
             else:
-                self.lBeta = self.__getConfidenceInterval(self.__bBeta, length, level)
+                self.lBeta = self._Models__getConfidenceInterval(self.__bBeta, level)
             
-            self.lGamma = self.__getConfidenceInterval(self.__bGamma, length, level)
+            self.lGamma = self._Models__getConfidenceInterval(self.__bGamma, level)
             
         #Define empty lists to recive results
         self.__bypred = []
@@ -670,7 +649,7 @@ class SEIR:
         self.__bI = []
         self.__bR = []
         
-        if isBetaChange:
+        if self.isBetaChange:
             self.__bDayBetaChange=[]
             self.__bBeta1 = []
             self.__bBeta2=[]
@@ -679,51 +658,46 @@ class SEIR:
             
         self.__bGamma = []
         
-        casesSeries = self.__genBoot(self.y, times)
-        
+        casesSeries = self._Models__genBoot(self.y, times)
+        copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
-            self.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,p=self.p)
+            copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,p=self.p)
             if self.isPredict:
-                self.predict(self.predictNumDays)
+                copia.predict(self.predictNumDays)
             else:
-                self.predict(0)
+                copia.predict(0)
 
-            self.__bypred.append(self.ypred)
-            self.__bS.append(self.S)
-            self.__bE.append(self.E)
-            self.__bI.append(self.I)
-            self.__bR.append(self.R)
-            if isBetaChange:
-                self.__bbeta1.append(self.beta1)
-                self.__bbeta2.append(self.beta2)
-                self.__bDayBetaChange.append(self.dayBetaChange)
+            self.__bypred.append(copia.ypred)
+            self.__bS.append(copia.S)
+            self.__bE.append(copia.E)
+            self.__bI.append(copia.I)
+            self.__bR.append(copia.R)
+            if self.isBetaChange:
+                self.__bbeta1.append(copia.beta1)
+                self.__bbeta2.append(copia.beta2)
+                self.__bDayBetaChange.append(copia.dayBetaChange)
             else:
-                self.__bbeta.append(self.beta)
-            self.__bgamma.append(self.gamma)            
+                self.__bbeta.append(copia.beta)
+            self.__bgamma.append(copia.gamma)            
         
-        self.lypred = self.__getConfidenceInterval(self.__bypred, length, level)
-        self.lS = self.__getConfidenceInterval(self.__bS, length, level)
-        self.lE = self.__getConfidenceInterval(self.__bE, length, level)
-        self.lI = self.__getConfidenceInterval(self.__bI, length, level)
-        self.lR = self.__getConfidenceInterval(self.__bR, length, level)
+        self.lypred = self._Models__getConfidenceInterval(self.__bypred, level)
+        self.lS = self._Models__getConfidenceInterval(self.__bS, level)
+        self.lE = self._Models__getConfidenceInterval(self.__bE, level)
+        self.lI = self._Models__getConfidenceInterval(self.__bI, level)
+        self.lR = self._Models__getConfidenceInterval(self.__bR, level)
         
-        if isBetaChange:
-            self.lDayBetaChange=self.__getConfidenceInterval(self.__bDayBetaChange, length, level)
-            self.lBeta1 = self.__getConfidenceInterval(self.__bBeta1, length, level)
-            self.lBeta2 = self.__getConfidenceInterval(self.__bBeta2, length, level)
+        if self.isBetaChange:
+            self.lDayBetaChange=self._Models__getConfidenceInterval(self.__bDayBetaChange, level)
+            self.lBeta1 = self._Models__getConfidenceInterval(self.__bBeta1, level)
+            self.lBeta2 = self._Models__getConfidenceInterval(self.__bBeta2, level)
         else:
-            self.lBeta = self.__getConfidenceInterval(self.__bBeta, length, level)
+            self.lBeta = self._Models__getConfidenceInterval(self.__bBeta, level)
             
-        self.lGamma = self.__getConfidenceInterval(self.__bGamma, length, level)
+        self.lGamma = self._Models__getConfidenceInterval(self.__bGamma, level)
         self.isCI=True
     
 class SEIRHUD(Models):
     ''' SEIRHU Model'''
-    def __init__(self,tamanhoPop,numeroProcessadores=None):
-        super(SEIRHUD,self).__init__()
-        self.N = tamanhoPop
-        self.numeroProcessadores = numeroProcessadores
-        self.isRT=False
     
     def __cal_EDO(self,x,beta,gammaH,gammaU,delta,h,ia0,is0,e0):
             ND = len(x)-1
@@ -857,15 +831,15 @@ class SEIRHUD(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
-        if not self.__validate(y):
+        if not self._Models__validadeVar(y):
             return
-        if not self.__validate(d):
+        if not self._Models__validadeVar(d):
             return
         if hos:
-            if not self.__validate(hos):
+            if not self._Models__validadeVar(hos):
                 return
         if u:
-            if not self.__validate(u):
+            if not self._Models__validadeVar(u):
                 return
             
         if len(y)!=len(d):
@@ -933,7 +907,7 @@ class SEIRHUD(Models):
 
                     
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=10, options=options,bounds=bound)
-            elif isBetaChange:
+            elif self.isBetaChange:
                 if len(bound[0])==8:
                     bound = (bound[0].copy(),bound[1].copy())
                     bound[0].insert(1,bound[0][0])
@@ -946,12 +920,12 @@ class SEIRHUD(Models):
         cost = pos = None
         #__cal_EDO(self,x,beta,gammaH,gammaU,delta,h,ia0,is0,e0)
         #__cal_EDO_2(self,x,beta1,beta2,tempo,gammaH,gammaU,delta,h,ia0,is0,e0)
-        if isBetaChange:
+        if self.isBetaChange:
             #cost, pos = optimizer.optimize(self.objectiveFunction,itera, x = x,y=df,d=dd,stand_error=stand_error,n_processes=self.numeroProcessadores, verbose = True)
-            cost, pos = optimizer.optimize(self.__objectiveFunction,itera, x = x,y=df,d=dd,hos=dhos,u=du,stand_error=stand_error,n_processes=self.numeroProcessadores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction,itera, x = x,y=df,d=dd,hos=dhos,u=du,stand_error=stand_error,n_processes=self.nCores)
         else:
             #cost, pos = optimizer.optimize(self.objectiveFunction, itera, x = x,y=df,d=dd,stand_error=stand_error,n_processes=self.numeroProcessadores, verbose = True)
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,d=dd,hos=dhos,u=du,stand_error=stand_error,n_processes=self.numeroProcessadores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,d=dd,hos=dhos,u=du,stand_error=stand_error,n_processes=self.nCores)
             self.beta = pos[0]
             self.gammaH = pos[1]
             self.gammaU = pos[2]
@@ -960,11 +934,11 @@ class SEIRHUD(Models):
             self.ia0 = pos[5]
             self.is0 = pos[6]
             self.e0 = pos[7]
-        if isBetaChange:
+        if self.isBetaChange:
             self.beta1 = pos[0]
             self.beta2 = pos[1]
             
-            if dayBetaChange==None:
+            if self.dayBetaChange==None:
                 self.dayBetaChange = pos[2]
                 self.gammaH = pos[3]
                 self.gammaU = pos[4]
@@ -1106,30 +1080,30 @@ class SEIRHUD(Models):
             print('\nModels is not fitted\n')
             return None
         if self.isCI:
-            self.lypred = self.__getConfidenceInterval(self.__bypred, length, level)
-            self.ldpred = self.__getConfidenceInterval(self.__bdpred, length, level)
-            self.lH = self.__getConfidenceInterval(self.__bH, length, level)
-            self.lS = self.__getConfidenceInterval(self.__bS, length, level)
-            self.lE = self.__getConfidenceInterval(self.__bE, length, level)
-            self.lR = self.__getConfidenceInterval(self.__bR, length, level)
-            self.lH = self.__getConfidenceInterval(self.__bH, length, level)
-            self.lU = self.__getConfidenceInterval(self.__bU, length, level)
-            self.lIA = self.__getConfidenceInterval(self.__bIA, length, level)
-            self.lIS = self.__getConfidenceInterval(self.__bIS, length, level)
+            self.lypred = self._Models__getConfidenceInterval(self.__bypred, level)
+            self.ldpred = self._Models__getConfidenceInterval(self.__bdpred, level)
+            self.lH = self._Models__getConfidenceInterval(self.__bH, level)
+            self.lS = self._Models__getConfidenceInterval(self.__bS, level)
+            self.lE = self._Models__getConfidenceInterval(self.__bE, level)
+            self.lR = self._Models__getConfidenceInterval(self.__bR, level)
+            self.lH = self._Models__getConfidenceInterval(self.__bH, level)
+            self.lU = self._Models__getConfidenceInterval(self.__bU, level)
+            self.lIA = self._Models__getConfidenceInterval(self.__bIA, level)
+            self.lIS = self._Models__getConfidenceInterval(self.__bIS, level)
         
-            if isBetaChange:
-                self.lDayBetaChange=self.__getConfidenceInterval(self.__bDayBetaChange, length, level)
-                self.lBeta1 = self.__getConfidenceInterval(self.__bBeta1, length, level)
-                self.lBeta2 = self.__getConfidenceInterval(self.__bBeta2, length, level)
+            if self.isBetaChange:
+                self.lDayBetaChange=self._Models__getConfidenceInterval(self.__bDayBetaChange, level)
+                self.lBeta1 = self._Models__getConfidenceInterval(self.__bBeta1, level)
+                self.lBeta2 = self._Models__getConfidenceInterval(self.__bBeta2, level)
             else:
-                self.lBeta = self.__getConfidenceInterval(self.__bBeta, length, level)
+                self.lBeta = self._Models__getConfidenceInterval(self.__bBeta, level)
             
-            self.lGammaH = self.__getConfidenceInterval(self.__bGammaH, length, level)
-            self.lGammaU = self.__getConfidenceInterval(self.__bGammaU, length, level)
-            self.lDelta = self.__getConfidenceInterval(self.__bDelta, length, level)
-            self.le0 = self.__getConfidenceInterval(self.__be0, length, level)
-            self.lia0 = self.__getConfidenceInterval(self.__bia0, length, level)
-            self.lis0 = self.__getConfidenceInterval(self.__bis0, length, level)
+            self.lGammaH = self._Models__getConfidenceInterval(self.__bGammaH, level)
+            self.lGammaU = self._Models__getConfidenceInterval(self.__bGammaU, level)
+            self.lDelta = self._Models__getConfidenceInterval(self.__bDelta, level)
+            self.le0 = self._Models__getConfidenceInterval(self.__be0, level)
+            self.lia0 = self._Models.__getConfidenceInterval(self.__bia0, level)
+            self.lis0 = self._Models__getConfidenceInterval(self.__bis0, level)
             
         #Define empty lists to recive results
         self.__bypred = []
@@ -1141,7 +1115,7 @@ class SEIRHUD(Models):
         self.__bU = []
         self.__bIA = []
         self.__bIS = []
-        if isBetaChange:
+        if self.isBetaChange:
             self.__bDayBetaChange=[]
             self.__bBeta1 = []
             self.__bBeta2=[]
@@ -1156,13 +1130,13 @@ class SEIRHUD(Models):
         self.__bis0 = []
 
         
-        casesSeries = self.__genBoot(self.y, times)
-        deathSeries = self.__genBoot(self.d, times)
-        hosSeries = self.__genBoot(self.hos,times) if self.hos else None
-        uSeries = self.__genBoot(self.u,times) if self.u else None
-        
+        casesSeries = self._Models__genBoot(self.y, times)
+        deathSeries = self._Models__genBoot(self.d, times)
+        hosSeries = self._Models__genBoot(self.hos,times) if self.hos else None
+        uSeries = self._Models.__genBoot(self.u,times) if self.u else None
+        copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
-            self.fit(y = casesSeries[i],
+            copia.fit(y = casesSeries[i],
                         d = deathSeries[i],
                         hos=hosSeries[i],
                         u = uSeries[i],
@@ -1171,74 +1145,55 @@ class SEIRHUD(Models):
                         stand_error = self.stand_error, isBetaChange = self.isBetaChange, dayBetaChange = self.dayBetaChange, particles = self.particles, itera = self.itera, c1 = self.c1, c2 = self.c2, w = self.w, k = self.k, norm = self.norm)
             
             if self.isPredict:
-                self.predict(self.predictNumDays)
+                copia.predict(self.predictNumDays)
             else:
-                self.predict(0)
-            self.__bypred.append(self.ypred)
-            self.__bdpred.append(self.dpred)
-            self.__bH.append(self.H)
-            self.__bU.append(self.U)
-            self.__bS.append(self.S)
-            self.__bE.append(self.E)
-            self.__bR.append(self.R)
-            self.__bIA.append(self.IA)
-            self.__bIS.append(self.IS)
-            if isBetaChange:
-                self.__bbeta1.append(self.beta1)
-                self.__bbeta2.append(self.beta2)
-                self.__bDayBetaChange.append(self.dayBetaChange)
+                copia.predict(0)
+            self.__bypred.append(copia.ypred)
+            self.__bdpred.append(copia.dpred)
+            self.__bH.append(copia.H)
+            self.__bU.append(copia.U)
+            self.__bS.append(copia.S)
+            self.__bE.append(copia.E)
+            self.__bR.append(copia.R)
+            self.__bIA.append(copia.IA)
+            self.__bIS.append(copia.IS)
+            if self.isBetaChange:
+                self.__bbeta1.append(copia.beta1)
+                self.__bbeta2.append(copia.beta2)
+                self.__bDayBetaChange.append(copia.dayBetaChange)
             else:
-                self.__bbeta.append(self.beta)
-            self.__bgammaH.append(self.gammaH)
-            self.__bgammaU.append(self.gammaU)
-            self.__bdelta.append(self.delta)
-            self.__be0.append(self.e0)
-            self.__bia0.append(self.ia0)
-            self.__bis0.append(self.is0)
+                self.__bbeta.append(copia.beta)
+            self.__bgammaH.append(copia.gammaH)
+            self.__bgammaU.append(copia.gammaU)
+            self.__bdelta.append(copia.delta)
+            self.__be0.append(copia.e0)
+            self.__bia0.append(copia.ia0)
+            self.__bis0.append(copia.is0)
             
         
-        self.lypred = self.__getConfidenceInterval(self.__bypred, length, level)
-        self.ldpred = self.__getConfidenceInterval(self.__bdpred, length, level)
-        self.lH = self.__getConfidenceInterval(self.__bH, length, level)
-        self.lS = self.__getConfidenceInterval(self.__bS, length, level)
-        self.lE = self.__getConfidenceInterval(self.__bE, length, level)
-        self.lR = self.__getConfidenceInterval(self.__bR, length, level)
-        self.lH = self.__getConfidenceInterval(self.__bH, length, level)
-        self.lU = self.__getConfidenceInterval(self.__bU, length, level)
-        self.lIA = self.__getConfidenceInterval(self.__bIA, length, level)
-        self.lIS = self.__getConfidenceInterval(self.__bIS, length, level)
+        self.lypred = self._Models__getConfidenceInterval(self.__bypred, level)
+        self.ldpred = self._Models__getConfidenceInterval(self.__bdpred, level)
+        self.lH = self._Models__getConfidenceInterval(self.__bH, level)
+        self.lS = self._Models__getConfidenceInterval(self.__bS, level)
+        self.lE = self._Models__getConfidenceInterval(self.__bE, level)
+        self.lR = self._Models__getConfidenceInterval(self.__bR, level)
+        self.lH = self._Models__getConfidenceInterval(self.__bH, level)
+        self.lU = self._Models__getConfidenceInterval(self.__bU, level)
+        self.lIA = self._Models__getConfidenceInterval(self.__bIA, level)
+        self.lIS = self._Models__getConfidenceInterval(self.__bIS, level)
         
-        if isBetaChange:
-            self.lDayBetaChange=self.__getConfidenceInterval(self.__bDayBetaChange, length, level)
-            self.lBeta1 = self.__getConfidenceInterval(self.__bBeta1, length, level)
-            self.lBeta2 = self.__getConfidenceInterval(self.__bBeta2, length, level)
+        if self.isBetaChange:
+            self.lDayBetaChange=self._Models__getConfidenceInterval(self.__bDayBetaChange, level)
+            self.lBeta1 = self._Models__getConfidenceInterval(self.__bBeta1, level)
+            self.lBeta2 = self._Models__getConfidenceInterval(self.__bBeta2, level)
         else:
-            self.lBeta = self.__getConfidenceInterval(self.__bBeta, length, level)
+            self.lBeta = self._Models__getConfidenceInterval(self.__bBeta, level)
             
-        self.lGammaH = self.__getConfidenceInterval(self.__bGammaH, length, level)
-        self.lGammaU = self.__getConfidenceInterval(self.__bGammaU, length, level)
-        self.lDelta = self.__getConfidenceInterval(self.__bDelta, length, level)
-        self.le0 = self.__getConfidenceInterval(self.__be0, length, level)
-        self.lia0 = self.__getConfidenceInterval(self.__bia0, length, level)
-        self.lis0 = self.__getConfidenceInterval(self.__bis0, length, level)
+        self.lGammaH = self._Models__getConfidenceInterval(self.__bGammaH, level)
+        self.lGammaU = self._Models__getConfidenceInterval(self.__bGammaU, level)
+        self.lDelta = self._Models__getConfidenceInterval(self.__bDelta, level)
+        self.le0 = self._Models__getConfidenceInterval(self.__be0, level)
+        self.lia0 = self._Models__getConfidenceInterval(self.__bia0, level)
+        self.lis0 = self._Models__getConfidenceInterval(self.__bis0, level)
         
         self.isCI=True
-        
-
-
-
-
-
-
-          
-    
-      
-       
-       
-      
-            
-
-
-        
-        
-  
