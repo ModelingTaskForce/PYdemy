@@ -269,19 +269,23 @@ class SIR(Models):
             cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
         else:
             cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
-            self.beta = pos[0]
-            self.gamma = pos[1]
         if isBetaChange:
             self.beta1 = pos[0]
             self.gamma = pos[1]
             self.beta2 = pos[2]
+            self.R0 = self.beta1/self.gamma
             if dayBetaChange==None:
                 self.dayBetaChange = pos[3]
             else:
                 self.dayBetaChange = dayBetaChange
+        else:
+            self.beta = pos[0]
+            self.gamma = pos[1]
+            self.R0 = self.beta/self.gamma
         self.rmse = cost
         self.cost_history = optimizer.cost_history
         self.isFit=True
+        
             
     def predict(self,numDays):
         ''' x = dias passados do dia inicial 1'''
@@ -512,7 +516,7 @@ class SEIR(Models):
         bound => (lista_min_bound, lista_max_bound)
         '''
         
-        if not self._Models__validadeVar(y):
+        if not self._Models__validadeVar(y,'y'):
             return
         x = range(1,len(y)+1)
         self.y = y
@@ -563,9 +567,6 @@ class SEIR(Models):
             cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.nCores)
         else:
             cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.nCores)
-            self.beta = pos[0]
-            self.gamma = pos[1]
-            self.sigma = pos[2]
             
         if isBetaChange:
             self.beta1 = pos[0]
@@ -579,6 +580,12 @@ class SEIR(Models):
                 self.dayBetaChange = dayBetaChange
                 self.gamma = pos[2]
                 self.sigma = pos[3]
+            self.R0=self.beta1/self.gamma
+        else:
+            self.beta = pos[0]
+            self.gamma = pos[1]
+            self.sigma = pos[2]
+            self.R0=self.beta/self.gamma
 
         self.rmse = cost
         self.cost_history = optimizer.cost_history
@@ -831,15 +838,15 @@ class SEIRHUD(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
-        if not self._Models__validadeVar(y):
+        if not self._Models__validadeVar(y,'y'):
             return
-        if not self._Models__validadeVar(d):
+        if not self._Models__validadeVar(d,'d'):
             return
         if hos:
-            if not self._Models__validadeVar(hos):
+            if not self._Models__validadeVar(hos,'hos'):
                 return
         if u:
-            if not self._Models__validadeVar(u):
+            if not self._Models__validadeVar(u,'u'):
                 return
             
         if len(y)!=len(d):
