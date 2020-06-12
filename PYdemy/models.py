@@ -17,6 +17,9 @@ from pyswarms.utils.plotters import plot_cost_history
 import pickle as pk
 from numbers import Number
 import copy
+import matplotlib.gridspec as gridspec
+from datetime import date, timedelta
+
 
 class Models:
     def __init__(self,popSize,nCores=None):
@@ -183,6 +186,7 @@ class SIR(Models):
             return S,I,R
     
     def __objectiveFunction(self,coef,x ,y,stand_error):
+        
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
         y = y*self.N
@@ -213,6 +217,7 @@ class SIR(Models):
                     S,I,R = self.__cal_EDO(x,coef[i,0],coef[i,1])
                     soma[i]= (((y-(I+R)))**2).mean()
         return soma
+    
     def fit(self, y , bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,p=1):
         '''
         x = dias passados do dia inicial 1
@@ -273,7 +278,7 @@ class SIR(Models):
             self.beta1 = pos[0]
             self.gamma = pos[1]
             self.beta2 = pos[2]
-            self.R0 = self.beta1/self.gamma
+            self.R_0 = self.beta1/self.gamma
             if dayBetaChange==None:
                 self.dayBetaChange = pos[3]
             else:
@@ -281,7 +286,7 @@ class SIR(Models):
         else:
             self.beta = pos[0]
             self.gamma = pos[1]
-            self.R0 = self.beta/self.gamma
+            self.R_0 = self.beta/self.gamma
         self.rmse = cost
         self.cost_history = optimizer.cost_history
         self.isFit=True
@@ -308,15 +313,386 @@ class SIR(Models):
         self.isPredict=True        
         return self.ypred
 
-    def plot(self,local):
-        ypred = self.predict(self.x)
-        plt.plot(ypred,c='b',label='Predição Infectados')
-        plt.plot(self.y,c='r',marker='o', markersize=3,label='Infectados')
-        plt.legend(fontsize=15)
-        plt.title('Dinâmica do CoviD19 - {}'.format(local),fontsize=20)
-        plt.ylabel('Casos COnfirmados',fontsize=15)
-        plt.xlabel('Dias',fontsize=15)
+    def ArangePlots(self,CompartmentPlots):
+        
+        PlotList=[]
+        LabelList=[]
+        for i in CompartmentPlots:
+        
+            if i=='S':
+                PlotList.append(self.S)
+                LabelList.append('Susceptible individuals')
+            # elif i=='E':
+            #     PlotList.append(self.E)
+            #     LabelList.append('Exposed individuals')
+            elif i=='I':
+                PlotList.append(self.I)
+                LabelList.append('Infected individuals')
+            elif i=='R':
+                PlotList.append(self.R)
+                LabelList.append('Recovered individuals')
+            # elif i=='IA':
+            #     PlotList.append(self.IA)
+            #     LabelList.append('Asymptomatic individuals')
+            # elif i=='IS':
+            #     PlotList.append(self.IS)
+            #     LabelList.append('Symptomatic individuals')
+            # elif i=='H':
+            #     PlotList.append(self.H)
+            #     LabelList.append('Clinic ocupation')
+            # elif i=='U':
+            #     PlotList.append(self.U)
+            #     LabelList.append('ICU ocupation')
+            # elif i=='D':
+            #     PlotList.append(self.D)
+            #     LabelList.append('Cumulative deaths')
+            # elif i=='dD':
+            #     PlotList.append(np.diff(self.D))
+            #     LabelList.append('New deaths')
+            elif i=='Y':
+                PlotList.append(self.ypred)
+                LabelList.append('Cumulative cases')
+            elif i=='dY':
+                PlotList.append(np.diff(self.ypred))
+                LabelList.append('New cases')
+            else:
+                print('\nThere is no compartment such as "'+str(i)+'" in the model.\n')
+               
+        return PlotList,LabelList
+        
+
+    def plot(self,local=None,InitialDate=None,CompartmentPlots=None,SaveFile=None):
+        
+        if self.isPredict==False:
+            self.predict(0)
+        
+        
+        
+
+        if InitialDate != None:
+            initial_date=date(int(InitialDate[0:4]), int(InitialDate[5:7]), int(InitialDate[8:11]))
+
+
+            dates = []
+            dates.append(initial_date.strftime('%Y-%m-%d'))  
+
+            for i in range(len(self.ypred)-1):
+                d=initial_date + timedelta(days=i)
+                dates.append(d.strftime('%Y-%m-%d'))  
+
+        else:
+            dates=np.arange(len(self.ypred))
+       
+        
+        #Plotting
+        
+        if CompartmentPlots==None:
+            
+            fig, ax = plt.subplots(figsize=(17,10))
+            ax.grid(which='major', axis='both', color='black',linewidth=1.,alpha=0.3)
+
+
+            ax.plot(dates,self.ypred,'b-', linewidth=2.5,label='Model')
+
+            ax.scatter(dates[:len( self.y)], self.y,  s=18,color='black',label='Reported data',zorder=3)
+
+
+            if self.isBetaChange == True:
+            
+                ax.axvline(self.dayBetaChange, 0, 600,c='r',linestyle='--',label='Beta change')
+
+         ##################
+    
+    
+    
+    
+    
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width*0.65, box.height])
+            legend_x = 1
+            legend_y = 0.5
+
+
+
+        
+
+            ax.tick_params(labelsize=14)
+            ax.legend(loc='center left', bbox_to_anchor=(legend_x, legend_y),fontsize=18)
+
+            
+                
+            ax.set_ylabel('Confirmed cases',fontsize=15)
+        
+            if InitialDate != None:
+                ax.set_xlabel('Days',fontsize=15)
+    
+    
+            ax.xaxis.set_major_locator(plt.MaxNLocator(9))
+            plt.setp(ax.get_xticklabels(), rotation=25)
+
+
+            for tick in ax.get_xticklabels():
+                tick.set_fontname("Arial")
+            for tick in ax.get_yticklabels():
+                tick.set_fontname("Arial")  
+        
+        
+                    
+            if local == None:
+                fig.suptitle('Model predictions',fontsize=24)
+            else:
+                fig.suptitle('Model predictions - '+ local,fontsize=24)
+                
+        elif len(CompartmentPlots)==1:
+        
+            PlotList,LabelList= self.ArangePlots(CompartmentPlots)
+            
+            fig, ax = plt.subplots(figsize=(17,10))
+            ax.grid(which='major', axis='both', color='black',linewidth=1.,alpha=0.3)
+
+
+            ax.plot(dates[:len(PlotList[0])],PlotList[0],'b-', linewidth=2.5,label='Model')
+
+            if CompartmentPlots[0]=='Y':
+                ax.scatter(dates[:len( self.y)], self.y,  s=18,color='black',label='Reported data',zorder=3)
+            elif CompartmentPlots[0]=='dY':
+                ax.scatter(dates[:len( self.y)-1], np.diff(self.y),  s=18,color='black',label='Reported data',zorder=3)
+
+            if self.isBetaChange == True:
+            
+                ax.axvline(self.dayBetaChange, 0, 600,c='r',linestyle='--',label='Beta Change')
+
+         ##################
+    
+    
+    
+    
+    
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width*0.65, box.height])
+            legend_x = 1
+            legend_y = 0.5
+
+
+
+        
+
+            ax.tick_params(labelsize=14)
+            ax.legend(loc='center left', bbox_to_anchor=(legend_x, legend_y),fontsize=18)
+
+    
+                
+            ax.set_ylabel(LabelList[0],fontsize=15)
+        
+            if InitialDate == None:
+                ax.set_xlabel('Days',fontsize=15)
+    
+    
+            ax.xaxis.set_major_locator(plt.MaxNLocator(9))
+            plt.setp(ax.get_xticklabels(), rotation=25)
+
+
+            for tick in ax.get_xticklabels():
+                tick.set_fontname("Arial")
+            for tick in ax.get_yticklabels():
+                tick.set_fontname("Arial")  
+        
+                    
+            if local == None:
+                fig.suptitle('Model predictions',fontsize=24)
+            else:
+                fig.suptitle('Model predictions - '+ local,fontsize=24)
+        
+        else:
+            
+            color=['blue','red','green','darkviolet','orange','darkblue']
+            
+            
+            PlotList,LabelList= self.ArangePlots(CompartmentPlots)
+            
+            
+            if len(CompartmentPlots)==2:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 1, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, :2]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[0, 2:])  #Ininicar um plot em branco na primeira posicao da segunda linha
+            
+                ax.append(ax1)
+                ax.append(ax2)
+
+            if len(CompartmentPlots)==3:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 2, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,2*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, 1:3]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[1, :2])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, 2:])
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+
+            if len(CompartmentPlots)==4:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 2, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,2*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, :2]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[0, 2:])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, :2])
+                ax4 = plt.subplot(gs[1, 2:])
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+                ax.append(ax4)
+            
+            if len(CompartmentPlots)==5:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 3, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,3*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, 1:3]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[1, :2])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, 2:])
+                ax4 = plt.subplot(gs[2, :2])
+                ax5 = plt.subplot(gs[2, 2:])
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+                ax.append(ax4)
+                ax.append(ax5)
+ 
+
+            if len(CompartmentPlots)==6:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 3, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,3*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, :2]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[0, 2:])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, :2])
+                ax4 = plt.subplot(gs[1, 2:]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax5 = plt.subplot(gs[2, :2])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax6 = plt.subplot(gs[2, 2:])
+                
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+                ax.append(ax4)
+                ax.append(ax5)
+                ax.append(ax6)
+ 
+  
+          
+            for k in range(len(ax)):
+                
+            
+
+                ax[k].grid(which='major', axis='both', color='black',linewidth=1.,alpha=0.3)
+
+
+                ax[k].plot(dates[:len(PlotList[k])],PlotList[k],color=color[k], linewidth=2.5,label='Model')
+
+                if CompartmentPlots[k]=='Y':
+                    ax[k].scatter(dates[:len( self.y)], self.y,  s=18,color='black',label='Reported data',zorder=3)
+                elif CompartmentPlots[k]=='dY':
+                    ax[k].scatter(dates[:len( self.y)-1], np.diff(self.y),  s=18,color='black',label='Reported data',zorder=3)
+
+                if self.isBetaChange == True:
+            
+                    ax[k].axvline(self.dayBetaChange, 0, 600,c='r',linestyle='--',label='Beta Change')
+
+             ##################
+    
+
+
+        
+
+                ax[k].tick_params(labelsize=22)
+                #ax[k].legend(loc='center left', bbox_to_anchor=(legend_x, legend_y),fontsize=18)
+
+    
+    
+                
+            
+            
+                ax[k].set_ylabel(LabelList[k],fontsize=25)
+        
+                if InitialDate == None:
+                    ax[k].set_xlabel('Days',fontsize=25)
+    
+    
+                ax[k].xaxis.set_major_locator(plt.MaxNLocator(9))
+                plt.setp(ax[k].get_xticklabels(), rotation=25)
+
+
+                for tick in ax[k].get_xticklabels():
+                    tick.set_fontname("Arial")
+                for tick in ax[k].get_yticklabels():
+                    tick.set_fontname("Arial")  
+        
+        
+    
+            if local == None:
+                fig.suptitle('Model predictions',fontsize=35)
+            else:
+                fig.suptitle('Model predictions - '+ local,fontsize=35)
+                
+            
+
+        if SaveFile != None:
+            fig.savefig(SaveFile,bbox_inches='tight')
+        
         plt.show()
+
+
+
     def getCoef(self):
         if self.isBetaChange:
             return ['beta1','beta2','gamma','dayBetaChange'],[self.beta1,self.beta2,self.gamma,self.dayBetaChange]
@@ -585,7 +961,7 @@ class SEIR(Models):
             self.beta = pos[0]
             self.gamma = pos[1]
             self.sigma = pos[2]
-            self.R0=self.beta/self.gamma
+            self.R_0=self.beta/self.gamma
 
         self.rmse = cost
         self.cost_history = optimizer.cost_history
@@ -613,15 +989,367 @@ class SEIR(Models):
         self.isPredict=True        
         return self.ypred
 
-    def plot(self,local):
-        ypred = self.predict(self.x)
-        plt.plot(ypred,c='b',label='Predição Infectados')
-        plt.plot(self.y,c='r',marker='o', markersize=3,label='Infectados')
-        plt.legend(fontsize=15)
-        plt.title('Dinâmica do CoviD19 - {}'.format(local),fontsize=20)
-        plt.ylabel('Casos COnfirmados',fontsize=15)
-        plt.xlabel('Dias',fontsize=15)
+    def ArangePlots(self,CompartmentPlots):
+        
+        PlotList=[]
+        LabelList=[]
+        for i in CompartmentPlots:
+        
+            if i=='S':
+                PlotList.append(self.S)
+                LabelList.append('Susceptible individuals')
+            elif i=='E':
+                PlotList.append(self.E)
+                LabelList.append('Exposed individuals')
+            elif i=='I':
+                PlotList.append(self.I)
+                LabelList.append('Infected individuals')
+            elif i=='R':
+                PlotList.append(self.R)
+                LabelList.append('Recovered individuals')
+            elif i=='Y':
+                PlotList.append(self.ypred)
+                LabelList.append('Cumulative cases')
+            elif i=='dY':
+                PlotList.append(np.diff(self.ypred))
+                LabelList.append('New cases')
+            else:
+                print('\nThere is no compartment such as "'+str(i)+'" in the model.\n')
+               
+        return PlotList,LabelList
+        
+
+    def plot(self,local=None,InitialDate=None,CompartmentPlots=None,SaveFile=None):
+        
+        if self.isPredict==False:
+            self.predict(0)
+        
+        
+        
+
+        if InitialDate != None:
+            initial_date=date(int(InitialDate[0:4]), int(InitialDate[5:7]), int(InitialDate[8:11]))
+
+
+            dates = []
+            dates.append(initial_date.strftime('%Y-%m-%d'))  
+
+            for i in range(len(self.ypred)-1):
+                d=initial_date + timedelta(days=i)
+                dates.append(d.strftime('%Y-%m-%d'))  
+
+        else:
+            dates=np.arange(len(self.ypred))
+       
+        
+        #Plotting
+        
+        if CompartmentPlots==None:
+            
+            fig, ax = plt.subplots(figsize=(17,10))
+            ax.grid(which='major', axis='both', color='black',linewidth=1.,alpha=0.3)
+
+
+            ax.plot(dates,self.ypred,'b-', linewidth=2.5,label='Model')
+
+            ax.scatter(dates[:len( self.y)], self.y,  s=18,color='black',label='Reported data',zorder=3)
+
+
+            if self.isBetaChange == True:
+            
+                ax.axvline(self.dayBetaChange, 0, 600,c='r',linestyle='--',label='Beta change')
+
+         ##################
+    
+    
+    
+    
+    
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width*0.65, box.height])
+            legend_x = 1
+            legend_y = 0.5
+
+
+
+        
+
+            ax.tick_params(labelsize=14)
+            ax.legend(loc='center left', bbox_to_anchor=(legend_x, legend_y),fontsize=18)
+
+            
+                
+            ax.set_ylabel('Confirmed cases',fontsize=15)
+        
+            if InitialDate != None:
+                ax.set_xlabel('Days',fontsize=15)
+    
+    
+            ax.xaxis.set_major_locator(plt.MaxNLocator(9))
+            plt.setp(ax.get_xticklabels(), rotation=25)
+
+
+            for tick in ax.get_xticklabels():
+                tick.set_fontname("Arial")
+            for tick in ax.get_yticklabels():
+                tick.set_fontname("Arial")  
+        
+        
+                    
+            if local == None:
+                fig.suptitle('Model predictions',fontsize=24)
+            else:
+                fig.suptitle('Model predictions - '+ local,fontsize=24)
+                
+        elif len(CompartmentPlots)==1:
+        
+            PlotList,LabelList= self.ArangePlots(CompartmentPlots)
+            
+            fig, ax = plt.subplots(figsize=(17,10))
+            ax.grid(which='major', axis='both', color='black',linewidth=1.,alpha=0.3)
+
+
+            ax.plot(dates[:len(PlotList[0])],PlotList[0],'b-', linewidth=2.5,label='Model')
+
+            if CompartmentPlots[0]=='Y':
+                ax.scatter(dates[:len( self.y)], self.y,  s=18,color='black',label='Reported data',zorder=3)
+            elif CompartmentPlots[0]=='dY':
+                ax.scatter(dates[:len( self.y)-1], np.diff(self.y),  s=18,color='black',label='Reported data',zorder=3)
+
+            if self.isBetaChange == True:
+            
+                ax.axvline(self.dayBetaChange, 0, 600,c='r',linestyle='--',label='Beta Change')
+
+         ##################
+    
+    
+    
+    
+    
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width*0.65, box.height])
+            legend_x = 1
+            legend_y = 0.5
+
+
+
+        
+
+            ax.tick_params(labelsize=14)
+            ax.legend(loc='center left', bbox_to_anchor=(legend_x, legend_y),fontsize=18)
+
+    
+                
+            ax.set_ylabel(LabelList[0],fontsize=15)
+        
+            if InitialDate == None:
+                ax.set_xlabel('Days',fontsize=15)
+    
+    
+            ax.xaxis.set_major_locator(plt.MaxNLocator(9))
+            plt.setp(ax.get_xticklabels(), rotation=25)
+
+
+            for tick in ax.get_xticklabels():
+                tick.set_fontname("Arial")
+            for tick in ax.get_yticklabels():
+                tick.set_fontname("Arial")  
+        
+                    
+            if local == None:
+                fig.suptitle('Model predictions',fontsize=24)
+            else:
+                fig.suptitle('Model predictions - '+ local,fontsize=24)
+        
+        else:
+            
+            color=['blue','red','green','darkviolet','orange','darkblue']
+            
+            
+            PlotList,LabelList= self.ArangePlots(CompartmentPlots)
+            
+            
+            if len(CompartmentPlots)==2:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 1, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, :2]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[0, 2:])  #Ininicar um plot em branco na primeira posicao da segunda linha
+            
+                ax.append(ax1)
+                ax.append(ax2)
+
+            if len(CompartmentPlots)==3:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 2, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,2*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, 1:3]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[1, :2])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, 2:])
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+
+            if len(CompartmentPlots)==4:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 2, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,2*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, :2]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[0, 2:])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, :2])
+                ax4 = plt.subplot(gs[1, 2:])
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+                ax.append(ax4)
+            
+            if len(CompartmentPlots)==5:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 3, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,3*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, 1:3]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[1, :2])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, 2:])
+                ax4 = plt.subplot(gs[2, :2])
+                ax5 = plt.subplot(gs[2, 2:])
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+                ax.append(ax4)
+                ax.append(ax5)
+ 
+
+            if len(CompartmentPlots)==6:
+           #Criar um grid para as figuras usando GridSpec
+                gs = gridspec.GridSpec(nrows = 3, ncols = 4)
+
+        #Definir o tamanho do plot que sera usado para cada plot individula tem o mesmo efieto de quando passado para subplot
+                fig=plt.figure(figsize=(2*15.4,3*10))
+
+        #Definir espaco em branco entre os plots
+                gs.update(wspace = 0.55)
+                gs.update(hspace = 0.55)
+
+                ax=[]
+        #Criar o layout onde os plots serao gerados. E nessa parte que se define o grid
+                ax1 = plt.subplot(gs[0, :2]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax2 = plt.subplot(gs[0, 2:])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax3 = plt.subplot(gs[1, :2])
+                ax4 = plt.subplot(gs[1, 2:]) #Ininicar um plot em branco no centro da primeira linha (0)
+                ax5 = plt.subplot(gs[2, :2])  #Ininicar um plot em branco na primeira posicao da segunda linha
+                ax6 = plt.subplot(gs[2, 2:])
+                
+                
+                ax.append(ax1)
+                ax.append(ax2)
+                ax.append(ax3)
+                ax.append(ax4)
+                ax.append(ax5)
+                ax.append(ax6)
+ 
+  
+          
+            for k in range(len(ax)):
+                
+            
+
+                ax[k].grid(which='major', axis='both', color='black',linewidth=1.,alpha=0.3)
+
+
+                ax[k].plot(dates[:len(PlotList[k])],PlotList[k],color=color[k], linewidth=2.5,label='Model')
+
+                if CompartmentPlots[k]=='Y':
+                    ax[k].scatter(dates[:len( self.y)], self.y,  s=18,color='black',label='Reported data',zorder=3)
+                elif CompartmentPlots[k]=='dY':
+                    ax[k].scatter(dates[:len( self.y)-1], np.diff(self.y),  s=18,color='black',label='Reported data',zorder=3)
+
+                if self.isBetaChange == True:
+            
+                    ax[k].axvline(self.dayBetaChange, 0, 600,c='r',linestyle='--',label='Beta Change')
+
+             ##################
+    
+
+
+        
+
+                ax[k].tick_params(labelsize=22)
+                #ax[k].legend(loc='center left', bbox_to_anchor=(legend_x, legend_y),fontsize=18)
+
+    
+    
+                
+            
+            
+                ax[k].set_ylabel(LabelList[k],fontsize=25)
+        
+                if InitialDate == None:
+                    ax[k].set_xlabel('Days',fontsize=25)
+    
+    
+                ax[k].xaxis.set_major_locator(plt.MaxNLocator(9))
+                plt.setp(ax[k].get_xticklabels(), rotation=25)
+
+
+                for tick in ax[k].get_xticklabels():
+                    tick.set_fontname("Arial")
+                for tick in ax[k].get_yticklabels():
+                    tick.set_fontname("Arial")  
+        
+        
+    
+            if local == None:
+                fig.suptitle('Model predictions',fontsize=35)
+            else:
+                fig.suptitle('Model predictions - '+ local,fontsize=35)
+                
+            
+
+        if SaveFile != None:
+            fig.savefig(SaveFile,bbox_inches='tight')
+        
         plt.show()
+
+
     def getCoef(self):
         #__cal_EDO(self,x,beta,gamma,mu,sigma)
         #__cal_EDO2(self,x,beta1,beta2,dayBetaChange,gamma,mu,sigma)
