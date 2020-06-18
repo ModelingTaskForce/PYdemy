@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue Mar 24 09:18:44 2020
-
 @author: Rafael Veiga rafaelvalenteveiga@gmail.com
 @author: matheustorquato matheusft@gmail.com
 ADICIONAR OS OUTROS AUTORES
@@ -49,7 +48,7 @@ class Models:
             if flag:
                 print('\nthe y is not sorted!\n')
                 return False
-        var.sort() 
+        var = sorted(var) 
         if var[0]<0:
             print('the '+ name + ' can not have negative  '+ str(var[0])+' value!')
             return False
@@ -59,7 +58,7 @@ class Models:
         return True
                
         
-    def __genBoot(series, times = 500):
+    def __genBoot(self, series, times = 500):
         series = np.diff(series)
         series = np.insert(series, 0, 1)
         series[series < 0] = 0
@@ -68,7 +67,7 @@ class Models:
             results.append(np.random.multinomial(n = sum(series), pvals = series/sum(series)))
         return np.array(results)
     
-    def __getConfidenceInterval(series, level):
+    def __getConfidenceInterval(self, series, level):
         series = np.array(series)
         length = len(series[0])
         #Compute mean value
@@ -127,6 +126,16 @@ class Models:
 
 class SIR(Models):
     ''' SIR Model'''
+    
+    def getR0(self):
+        if self.isFit:
+            if self.isBetaChange:
+                return self.beta1/self.gamma
+            else:
+                return self.beta/self.gamma
+        else:
+            print("\nThe models is not fitted!\n")
+            return None
     
     def __cal_EDO(self,x,beta,gamma):
             ND = len(x)-1
@@ -189,7 +198,6 @@ class SIR(Models):
         
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
-        y = y*self.N
         if stand_error:
             if (self.isBetaChange) & (self.dayBetaChange==None):
                 for i in range(tam2):
@@ -218,7 +226,7 @@ class SIR(Models):
                     soma[i]= (((y-(I+R)))**2).mean()
         return soma
     
-    def fit(self, y , bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,p=1):
+    def fit(self, y , bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
         '''
         x = dias passados do dia inicial 1
         y = numero de casos
@@ -234,11 +242,21 @@ class SIR(Models):
         self.dayBetaChange = dayBetaChange
         self.y = y
         self.x = x
-        df = np.array(y)/self.N
+        self.bound = bound
+        self.stand_error = stand_error
+        self.particles = particles
+        self.itera = itera
+        self.c1 = c1
+        self.c2 = c2
+        self.w = w
+        self.k = k
+        self.norm = norm
+        
+        df = np.array(y)
         self.I0 = df[0]
         self.S0 = 1-self.I0
         self.R0 = 0
-        options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':p}
+        options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
         optimizer = None
         if bound==None:
             if (isBetaChange) & (dayBetaChange==None):
@@ -270,6 +288,7 @@ class SIR(Models):
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=2, options=options,bounds=bound)
                 
         cost = pos = None
+        self.bound = bound
         if isBetaChange:
             cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
         else:
@@ -278,7 +297,6 @@ class SIR(Models):
             self.beta1 = pos[0]
             self.gamma = pos[1]
             self.beta2 = pos[2]
-            self.R_0 = self.beta1/self.gamma
             if dayBetaChange==None:
                 self.dayBetaChange = pos[3]
             else:
@@ -286,7 +304,6 @@ class SIR(Models):
         else:
             self.beta = pos[0]
             self.gamma = pos[1]
-            self.R_0 = self.beta/self.gamma
         self.rmse = cost
         self.cost_history = optimizer.cost_history
         self.isFit=True
@@ -746,7 +763,7 @@ class SIR(Models):
         casesSeries = self._Models__genBoot(self.y, times)
         copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
-            copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,p=self.p)
+            copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,norm=self.norm)
             if self.isPredict:
                 copia.predict(self.predictNumDays)
             else:
@@ -781,6 +798,16 @@ class SIR(Models):
 
 class SEIR(Models):
     ''' SIR Model'''
+    
+    def getR0(self):
+        if self.isFit:
+            if self.isBetaChange:
+                return self.beta1/self.gamma
+            else:
+                return self.beta/self.gamma
+        else:
+            print("\nThe models is not fitted!\n")
+            return None
     
     def __cal_EDO(self,x,beta,gamma,mu,sigma):
             ND = len(x)-1
@@ -883,7 +910,7 @@ class SEIR(Models):
         return soma
     
 
-    def fit(self, y , bound = ([0,1/7,1/6],[1.5,1/4,1/4]) ,stand_error=True, isBetaChange=True,dayBetaChange = None,particles=50,itera=500,c1=0.3,c2= 0.3, w= 0.9,k=3,p=2):
+    def fit(self, y , bound = ([0,1/7,1/6],[1.5,1/4,1/4]) ,stand_error=True, isBetaChange=True,dayBetaChange = None,particles=50,itera=500,c1=0.3,c2= 0.3, w= 0.9,k=3,norm=2):
         '''
         x = dias passados do dia inicial 1
         y = numero de casos
@@ -896,6 +923,8 @@ class SEIR(Models):
             return
         x = range(1,len(y)+1)
         self.y = y
+        dy = np.array(y)
+        self.x = x
         self.I0 = np.array(y[0])/self.N
         self.S0 = 1-self.I0
         self.R0 = 0
@@ -904,10 +933,18 @@ class SEIR(Models):
 
         self.isBetaChange = isBetaChange
         self.dayBetaChange = dayBetaChange
-        self.y = y
-        self.x = x
+        
+        self.stand_error = stand_error
+        self.particles = particles
+        self.itera = itera
+        self.c1 = c1
+        self.c2 = c2
+        self.w = w
+        self.k = k
+        self.norm = norm
 
-        options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':p}
+
+        options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
         optimizer = None
         
         if bound==None:
@@ -939,10 +976,11 @@ class SEIR(Models):
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=3, options=options,bounds=bound)
                 
         cost = pos = None
+        self.bound = bound
         if isBetaChange:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.nCores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=dy,stand_error=stand_error,n_processes=self.nCores)
         else:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=y,stand_error=stand_error,n_processes=self.nCores)
+            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=dy,stand_error=stand_error,n_processes=self.nCores)
             
         if isBetaChange:
             self.beta1 = pos[0]
@@ -956,12 +994,12 @@ class SEIR(Models):
                 self.dayBetaChange = dayBetaChange
                 self.gamma = pos[2]
                 self.sigma = pos[3]
-            self.R0=self.beta1/self.gamma
+            
         else:
             self.beta = pos[0]
             self.gamma = pos[1]
             self.sigma = pos[2]
-            self.R_0=self.beta/self.gamma
+            
 
         self.rmse = cost
         self.cost_history = optimizer.cost_history
@@ -1396,7 +1434,7 @@ class SEIR(Models):
         casesSeries = self._Models__genBoot(self.y, times)
         copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
-            copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,p=self.p)
+            copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,norm=self.norm)
             if self.isPredict:
                 copia.predict(self.predictNumDays)
             else:
@@ -1566,6 +1604,7 @@ class SEIRHUD(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
+        
         if not self._Models__validadeVar(y,'y'):
             return
         if not self._Models__validadeVar(d,'d'):
@@ -1618,6 +1657,14 @@ class SEIRHUD(Models):
         self.y = y
         self.d = d
         self.x = x
+        self.stand_error = stand_error
+        self.particles = particles
+        self.itera = itera
+        self.c1 = c1
+        self.c2 = c2
+        self.w = w
+        self.k = k
+        self.norm = norm
         df = np.array(y)
         dd = np.array(d)
         dhos = np.array(hos)
@@ -1653,6 +1700,7 @@ class SEIRHUD(Models):
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=8, options=options,bounds=bound)
                 
         cost = pos = None
+        self.bound = bound
         #__cal_EDO(self,x,beta,gammaH,gammaU,delta,h,ia0,is0,e0)
         #__cal_EDO_2(self,x,beta1,beta2,tempo,gammaH,gammaU,delta,h,ia0,is0,e0)
         if self.isBetaChange:
