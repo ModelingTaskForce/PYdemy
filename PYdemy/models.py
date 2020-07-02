@@ -138,11 +138,7 @@ class SIR(Models):
             return None
     
     def __cal_EDO(self,x,beta,gamma):
-            ND = len(x)-1
-            t_start = 0.0
-            t_end = ND
-            t_inc = 1
-            t_range = np.arange(t_start, t_end + t_inc, t_inc)
+            t_range = x
             beta = np.array(beta)
             gamma = np.array(gamma)
             def SIR_diff_eqs(INP, t, beta, gamma):
@@ -163,12 +159,7 @@ class SIR(Models):
             return S,I,R
         
     def __cal_EDO_2(self,x,beta1,gamma,beta2,tempo):
-            ND = len(x)-1
-            
-            t_start = 0.0
-            t_end = ND
-            t_inc = 1
-            t_range = np.arange(t_start, t_end + t_inc, t_inc)
+            t_range = x
             def H(t):
                 h = 1.0/(1.0+ np.exp(-2.0*50*t))
                 return h
@@ -194,37 +185,46 @@ class SIR(Models):
             
             return S,I,R
     
+    
+    def __residuals(self,coef,x ,y,stand_error):
+        if (self.isBetaChange) & (self.dayBetaChange==None):
+            S,I,R = self.__cal_EDO_2(x,coef[0],coef[1],coef[2],coef[3])
+        elif self.isBetaChange:
+            S,I,R = self.__cal_EDO_2(x,coef[0],coef[1],coef[2],self.dayBetaChange)
+        else:
+            S,I,R = self.__cal_EDO(x,coef[0],coef[1])
+        res = (y-(I+R))
+        if stand_error:
+            res = res / np.sqrt((I+R)+1)
+        return res
+    
     def __objectiveFunction(self,coef,x ,y,stand_error):
-        
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
-        if stand_error:
-            if (self.isBetaChange) & (self.dayBetaChange==None):
-                for i in range(tam2):
-                    S,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3])
-                    soma[i]= (((y-(I+R))/np.sqrt((I+R)+1))**2).mean()
-            elif self.isBetaChange:
-                for i in range(tam2):
-                    S,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange)
-                    soma[i]= (((y-(I+R))/np.sqrt((I+R)+1))**2).mean()
-            else:
-                for i in range(tam2):
-                    S,I,R = self.__cal_EDO(x,coef[i,0],coef[i,1])
-                    soma[i]= (((y-(I+R))/np.sqrt((I+R)+1))**2).mean()
-        else:
-            if (self.isBetaChange) & (self.dayBetaChange==None):
-                for i in range(tam2):
-                    S,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3])
-                    soma[i]= (((y-(I+R)))**2).mean()
-            elif self.isBetaChange:
-                for i in range(tam2):
-                    S,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange)
-                    soma[i]= (((y-(I+R)))**2).mean()
-            else:
-                for i in range(tam2):
-                    S,I,R = self.__cal_EDO(x,coef[i,0],coef[i,1])
-                    soma[i]= (((y-(I+R)))**2).mean()
+        for i in range(tam2):
+            soma[i] = ((self.__residuals(coef[i], x, y, stand_error))**2).mean()
         return soma
+    
+    def _prepare_bound(self, bound):
+        if (self.isBetaChange) & (self.dayBetaChange==None):
+            if len(bound[0])==2:
+                bound = (bound[0].copy(),bound[1].copy())
+                bound[0].append(bound[0][0])
+                bound[1].append(bound[1][0])
+                bound[0].append(self.x[4])
+                bound[1].append(self.x[-5])
+                bound[0][3] = self.x[4]
+                bound[1][3] = self.x[-5]
+            elif len(bound[0]) != 4:
+                raise ValueError("Bound of Incorrect size")
+        elif self.isBetaChange:
+            if len(bound[0])==2:
+                bound = (bound[0].copy(),bound[1].copy())
+                bound[0].append(bound[0][1])
+                bound[1].append(bound[1][1])
+            elif len(bound[0]) != 3:
+                raise ValueError("Bound of Incorrect size")
+        self.bound = bound
     
     def fit(self, y , bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
         '''
@@ -259,6 +259,7 @@ class SIR(Models):
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
         optimizer = None
         if bound==None:
+            self.bound = bound
             if (isBetaChange) & (dayBetaChange==None):
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=4, options=options)
             elif isBetaChange:
@@ -266,29 +267,9 @@ class SIR(Models):
             else:
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=2, options=options)                
         else:
-            if (isBetaChange) & (dayBetaChange==None):
-                if len(bound[0])==2:
-                    bound = (bound[0].copy(),bound[1].copy())
-                    bound[0].append(bound[0][0])
-                    bound[1].append(bound[1][0])
-                    bound[0].append(x[4])
-                    bound[1].append(x[-5])
-                    bound[0][3] = x[4]
-                    bound[1][3] = x[-5]
-                    
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=4, options=options,bounds=bound)
-            elif isBetaChange:
-                if len(bound[0])==2:
-                    bound = (bound[0].copy(),bound[1].copy())
-                    bound[0].append(bound[0][1])
-                    bound[1].append(bound[1][1])
-                    
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=3, options=options,bounds=bound)
-            else:
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=2, options=options,bounds=bound)
-                
+            self._prepare_bound(bound)
+            optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=len(bound[0]), options=options,bounds=self.bound)
         cost = pos = None
-        self.bound = bound
         if isBetaChange:
             cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
         else:
