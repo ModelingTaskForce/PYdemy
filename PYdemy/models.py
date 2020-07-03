@@ -24,7 +24,6 @@ class Models:
     def __init__(self,popSize,nCores=None):
         self.isFit=False
         self.isBetaChange = False
-        self.isPredict = False
         self.isCI = False
         self.isRT = False
         self.N = popSize
@@ -57,7 +56,14 @@ class Models:
             return False
         return True
                
-        
+    def __changeCases(y):
+        tam = len(y)
+        res = np.ones(tam)
+        res[0] = y[0]
+        for i in range(1,tam):
+            res[i] = y[i]-y[i-1]
+        return res
+    
     def __genBoot(self, series, times = 500):
         series = np.diff(series)
         series = np.insert(series, 0, 1)
@@ -160,12 +166,11 @@ class SIR(Models):
         
     def __cal_EDO_2(self,x,beta1,gamma,beta2,tempo):
             t_range = x
-            def H(t):
-                h = 1.0/(1.0+ np.exp(-2.0*50*t))
-                return h
-            def beta(t,t1,b,b1):
-                beta = b*H(t1-t) + b1*H(t-t1) 
-                return beta
+            
+            def beta(t,t1,beta1,beta2):
+                if t<t1:
+                    return beta1
+                return beta2
 
             gamma = np.array(gamma)
             def SIR_diff_eqs(INP, t, beta1, gamma,beta2,t1):
@@ -186,26 +191,35 @@ class SIR(Models):
             return S,I,R
     
     
-    def __residuals(self,coef,x ,y,stand_error):
+    def __residuals(self,coef):
         if (self.isBetaChange) & (self.dayBetaChange==None):
-            S,I,R = self.__cal_EDO_2(x,coef[0],coef[1],coef[2],coef[3])
+            S,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],coef[2],coef[3])
         elif self.isBetaChange:
-            S,I,R = self.__cal_EDO_2(x,coef[0],coef[1],coef[2],self.dayBetaChange)
+            S,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],coef[2],self.dayBetaChange)
         else:
-            S,I,R = self.__cal_EDO(x,coef[0],coef[1])
-        res = (y-(I+R))
-        if stand_error:
-            res = res / np.sqrt((I+R)+1)
-        return res
+            S,I,R = self.__cal_EDO(self.x,coef[0],coef[1])
+        aux = I+R
+        if self.fittingByCumulativeCases:
+            aux2 = self.y-aux 
+        else:
+            aux = self._Models__changeCases(aux) 
+            aux2 = self.NC - aux
+        
+        if self.stand_error:
+            aux2 = aux2 / np.sqrt(aux+1)
+        return aux2
     
-    def __objectiveFunction(self,coef,x ,y,stand_error):
+    def __objectiveFunction(self,coef):
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
         for i in range(tam2):
-            soma[i] = ((self.__residuals(coef[i], x, y, stand_error))**2).mean()
+            soma[i] = ((self.__residuals(coef[i]))**2).mean()
         return soma
     
-    def _prepare_bound(self, bound):
+    def _validateBound(self, bound):
+        if len(bound)!=2:
+           raise ValueError("Bound of Incorrect size")
+           return False
         if (self.isBetaChange) & (self.dayBetaChange==None):
             if len(bound[0])==2:
                 bound = (bound[0].copy(),bound[1].copy())
@@ -217,6 +231,7 @@ class SIR(Models):
                 bound[1][3] = self.x[-5]
             elif len(bound[0]) != 4:
                 raise ValueError("Bound of Incorrect size")
+                return False
         elif self.isBetaChange:
             if len(bound[0])==2:
                 bound = (bound[0].copy(),bound[1].copy())
@@ -224,9 +239,11 @@ class SIR(Models):
                 bound[1].append(bound[1][1])
             elif len(bound[0]) != 3:
                 raise ValueError("Bound of Incorrect size")
+                return False
         self.bound = bound
+        return True
     
-    def fit(self, y , bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
+    def fit(self,x, y ,fittingByCumulativeCases=True, bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
         '''
         x = dias passados do dia inicial 1
         y = numero de casos
@@ -237,12 +254,13 @@ class SIR(Models):
        
         if not self._Models__validadeVar(y,'y'):
             return
-        x = range(1,len(y)+1)
+        if not self.__validateBound(bound):
+            return
         self.isBetaChange = isBetaChange
         self.dayBetaChange = dayBetaChange
-        self.y = y
-        self.x = x
-        self.bound = bound
+        self.y = np.array(y)
+        self.x = np.array(x)
+        self.fittingByCumulativeCases = fittingByCumulativeCases
         self.stand_error = stand_error
         self.particles = particles
         self.itera = itera
@@ -251,9 +269,9 @@ class SIR(Models):
         self.w = w
         self.k = k
         self.norm = norm
+        self.NC = self._Models__changeCases(self.y)
         
-        df = np.array(y)
-        self.I0 = df[0]
+        self.I0 = self.y[0]
         self.S0 = 1-self.I0
         self.R0 = 0
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
@@ -269,11 +287,10 @@ class SIR(Models):
         else:
             self._prepare_bound(bound)
             optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=len(bound[0]), options=options,bounds=self.bound)
-        cost = pos = None
-        if isBetaChange:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
-        else:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,stand_error=stand_error,n_processes=self.nCores)
+        
+        
+        cost, pos = optimizer.optimize(self.__objectiveFunction, itera,n_processes=self.nCores)
+        
         if isBetaChange:
             self.beta1 = pos[0]
             self.gamma = pos[1]
@@ -288,6 +305,7 @@ class SIR(Models):
         self.rmse = cost
         self.cost_history = optimizer.cost_history
         self.isFit=True
+        self.predict(0)
         
             
     def predict(self,numDays):
@@ -308,7 +326,6 @@ class SIR(Models):
         self.S = S
         self.I = I
         self.R = R
-        self.isPredict=True        
         return self.ypred
 
     def ArangePlots(self,CompartmentPlots):
@@ -361,8 +378,7 @@ class SIR(Models):
 
     def plot(self,local=None,InitialDate=None,CompartmentPlots=None,SaveFile=None):
         
-        if self.isPredict==False:
-            self.predict(0)
+        
         
         
         
@@ -693,8 +709,11 @@ class SIR(Models):
 
     def getCoef(self):
         if self.isBetaChange:
-            return ['beta1','beta2','gamma','dayBetaChange'],[self.beta1,self.beta2,self.gamma,self.dayBetaChange]
-        return ['beta','gamma'], [self.beta,self.gamma]
+            return dict(zip(['beta1','beta2','gamma','dayBetaChange'],[self.beta1,self.beta2,self.gamma,self.dayBetaChange]))
+        return dict(zip(['beta','gamma'], [self.beta,self.gamma]))
+    
+    def getEstimation(self):
+        return dict(zip(['S','I','R','Cumulative_cases_predict','new_cases_predict'],[self.S,self.I,self.R,self.ypred,self.NCpred]))
 
     def plotFit(self):
         plt.style.use('seaborn-deep')
@@ -745,10 +764,7 @@ class SIR(Models):
         copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
             copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,norm=self.norm)
-            if self.isPredict:
-                copia.predict(self.predictNumDays)
-            else:
-                copia.predict(0)
+            
 
             self.__bypred.append(copia.ypred)
             self.__bS.append(copia.S)
@@ -791,11 +807,7 @@ class SEIR(Models):
             return None
     
     def __cal_EDO(self,x,beta,gamma,mu,sigma):
-            ND = len(x)-1
-            t_start = 0.0
-            t_end = ND
-            t_inc = 1
-            t_range = np.arange(t_start, t_end + t_inc, t_inc)
+            t_range = x
             #beta = np.array(beta)
             #gamma = np.array(gamma)
             #mu = np.array(mu)
@@ -822,11 +834,7 @@ class SEIR(Models):
             return S,E,I,R
       
     def __cal_EDO_2(self,x,beta1,beta2,dayBetaChange,gamma,mu,sigma):
-            ND = len(x)-1
-            t_start = 0.0
-            t_end = ND
-            t_inc = 1
-            t_range = np.arange(t_start, t_end + t_inc, t_inc)
+            t_range = x
             #beta1 = np.array(beta1)
             #beta2 = np.array(beta2)
             #gamma = np.array(gamma)
@@ -857,41 +865,60 @@ class SEIR(Models):
             R=result_fit[:, 3]*self.N
             
             return S,E,I,R
-    def __objectiveFunction(self,coef,x ,y,stand_error):
+        
+    def __residuals(self,coef):
+        if (self.isBetaChange) & (self.dayBetaChange==None):
+            S,E,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],coef[2],coef[3],self.mu,coef[4])
+        elif self.isBetaChange:
+            S,E,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],self.dayBetaChange,coef[2],self.mu,coef[3])
+        else:
+            S,E,I,R = self.__cal_EDO(self.x,coef[0],coef[1],self.mu,coef[2])
+        aux = I+R
+        if self.fittingByCumulativeCases:
+            aux2 = self.y-aux
+        else:
+            aux = self._Models__changeCases(aux) 
+            aux2 = self.NC - aux
+        
+        if self.stand_error:
+            aux2 = aux2 / np.sqrt(aux+1)
+        return aux2
+    
+    def __objectiveFunction(self,coef):
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
-        #__cal_EDO(self,x,beta,gamma,mu,sigma)
-        #__cal_EDO2(self,x,beta1,beta2,dayBetaChange,gamma,mu,sigma)
-        if stand_error:
-            if (self.isBetaChange) & (self.dayBetaChange==None):
-                for i in range(tam2):
-                    S,E,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],self.mu,coef[i,4])
-                    soma[i]= (((y-(I+R))/np.sqrt((I+R)+1))**2).mean()
-            elif self.isBetaChange:
-                for i in range(tam2):
-                    S,E,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],self.dayBetaChange,coef[i,2],self.mu,coef[i,3])
-                    soma[i]= (((y-(I+R))/np.sqrt((I+R)+1))**2).mean()
-            else:
-                for i in range(tam2):
-                    S,E,I,R = self.__cal_EDO(x,coef[i,0],coef[i,1],self.mu,coef[i,2])
-                    soma[i]= (((y-(I+R))/np.sqrt((I+R)+1))**2).mean()
-        else:
-            if (self.isBetaChange) & (self.dayBetaChange==None):
-                for i in range(tam2):
-                    S,E,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],self.mu,coef[i,4])
-                    soma[i]= (((y-(I+R)))**2).mean()
-            elif self.isBetaChange:
-                for i in range(tam2):
-                    S,E,I,R = self.__cal_EDO_2(x,coef[i,0],coef[i,1],self.dayBetaChange,coef[i,2],self.mu,coef[i,3])
-                    soma[i]= (((y-(I+R)))**2).mean()
-            else:
-                for i in range(tam2):
-                    S,E,I,R = self.__cal_EDO(x,coef[i,0],coef[i,1],self.mu,coef[i,2])
-                    soma[i]= (((y-(I+R)))**2).mean()
+        for i in range(tam2):
+            soma[i] = ((self.__residuals(coef[i]))**2).mean()
         return soma
     
+    def _validateBound(self, bound):
+        if len(bound)!=2:
+           raise ValueError("Bound of Incorrect size")
+           return False
+        if (self.isBetaChange) & (self.dayBetaChange==None):
+            if len(bound[0])==2:
+                bound = (bound[0].copy(),bound[1].copy())
+                bound[0].append(bound[0][0])
+                bound[1].append(bound[1][0])
+                bound[0].append(self.x[4])
+                bound[1].append(self.x[-5])
+                bound[0][3] = self.x[4]
+                bound[1][3] = self.x[-5]
+            elif len(bound[0]) != 4:
+                raise ValueError("Bound of Incorrect size")
+                return False
+        elif self.isBetaChange:
+            if len(bound[0])==2:
+                bound = (bound[0].copy(),bound[1].copy())
+                bound[0].append(bound[0][1])
+                bound[1].append(bound[1][1])
+            elif len(bound[0]) != 3:
+                raise ValueError("Bound of Incorrect size")
+                return False
+        self.bound = bound
+        return True
 
-    def fit(self, y , bound = ([0,1/7,1/6],[1.5,1/4,1/4]) ,stand_error=True, isBetaChange=True,dayBetaChange = None,particles=50,itera=500,c1=0.3,c2= 0.3, w= 0.9,k=3,norm=2):
+    def fit(self,x, y ,fittingByCumulativeCases=True, bound = ([0,1/7,1/6],[1.5,1/4,1/4]) ,stand_error=True, isBetaChange=True,dayBetaChange = None,particles=50,itera=500,c1=0.3,c2= 0.3, w= 0.9,k=3,norm=2):
         '''
         x = dias passados do dia inicial 1
         y = numero de casos
@@ -902,10 +929,10 @@ class SEIR(Models):
         
         if not self._Models__validadeVar(y,'y'):
             return
-        x = range(1,len(y)+1)
-        self.y = y
-        dy = np.array(y)
-        self.x = x
+        if not self.__validateBound(bound):
+            return
+        self.y = np.array(y)
+        self.x = np.array(x)
         self.I0 = np.array(y[0])/self.N
         self.S0 = 1-self.I0
         self.R0 = 0
@@ -914,7 +941,7 @@ class SEIR(Models):
 
         self.isBetaChange = isBetaChange
         self.dayBetaChange = dayBetaChange
-        
+        self.fittingByCumulativeCases = fittingByCumulativeCases
         self.stand_error = stand_error
         self.particles = particles
         self.itera = itera
@@ -923,11 +950,10 @@ class SEIR(Models):
         self.w = w
         self.k = k
         self.norm = norm
-
+        self.NC = self._Models__changeCases(self.y)
 
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
         optimizer = None
-        
         if bound==None:
             if (isBetaChange) & (dayBetaChange==None):
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=5, options=options)
@@ -936,33 +962,15 @@ class SEIR(Models):
             else:
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=3, options=options)                
         else:
-            if (isBetaChange) & (dayBetaChange==None):
-                if len(bound[0])==3:
-                    bound = (bound[0].copy(),bound[1].copy())
-                    bound[0].insert(1,bound[0][0])
-                    bound[1].insert(1,bound[1][0])
-                    bound[0].insert(2,x[4])
-                    bound[1].insert(2,x[-5])
-
-                    
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=5, options=options,bounds=bound)
-            elif isBetaChange:
-                if len(bound[0])==3:
-                    bound = (bound[0].copy(),bound[1].copy())
-                    bound[0].insert(1,bound[0][0])
-                    bound[1].insert(1,bound[1][0])
-                    
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=4, options=options,bounds=bound)
+            if (isBetaChange) & (dayBetaChange==None):                    
+                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=5, options=options,bounds=self.bound)
+            elif isBetaChange:                    
+                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=4, options=options,bounds=self.bound)
             else:
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=3, options=options,bounds=bound)
+                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=3, options=options,bounds=self.bound)
                 
-        cost = pos = None
-        self.bound = bound
-        if isBetaChange:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=dy,stand_error=stand_error,n_processes=self.nCores)
-        else:
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=dy,stand_error=stand_error,n_processes=self.nCores)
-            
+        cost, pos = optimizer.optimize(self.__objectiveFunction, itera,n_processes=self.nCores)
+        
         if isBetaChange:
             self.beta1 = pos[0]
             self.beta2 = pos[1]
@@ -985,29 +993,10 @@ class SEIR(Models):
         self.rmse = cost
         self.cost_history = optimizer.cost_history
         self.isFit=True
-            
-    def predict(self,numDays):
-        ''' x = dias passados do dia inicial 1'''
-        if numDays<0:
-            print('\nnumDays must be a positive number!\n')
-            return
-        if self.isFit==False:
-            print('\nModels is not fitted\n')
-            return None
-        x = range(1,len(self.y)+1+numDays)
-        self.predictNumDays = numDays
-        if self.isBetaChange:
-            S,E,I,R = self.__cal_EDO_2(x,self.beta1,self.beta2,self.dayBetaChange,self.gamma,self.mu,self.sigma)
-        else:
-            S,E,I,R = self.__cal_EDO(x,self.beta,self.gamma,self.mu,self.sigma)
-        self.ypred = I+R
-        self.S = S
-        self.E = E
-        self.I = I
-        self.R = R
-        self.isPredict=True        
-        return self.ypred
-
+        self.predict(0)
+        
+        
+        
     def ArangePlots(self,CompartmentPlots):
         
         PlotList=[]
@@ -1040,8 +1029,7 @@ class SEIR(Models):
 
     def plot(self,local=None,InitialDate=None,CompartmentPlots=None,SaveFile=None):
         
-        if self.isPredict==False:
-            self.predict(0)
+        
         
         
         
@@ -1370,12 +1358,13 @@ class SEIR(Models):
 
 
     def getCoef(self):
-        #__cal_EDO(self,x,beta,gamma,mu,sigma)
-        #__cal_EDO2(self,x,beta1,beta2,dayBetaChange,gamma,mu,sigma)
         if self.isBetaChange:
-            return ['beta1','beta2','dayBetaChange','gamma','mu','sigma'],[self.beta1,self.beta2,self.dayBetaChange,self.gamma,self.mu,self.sigma]
-        return ['beta','gamma','mu','sigma'],[self.beta,self.gamma,self.mu,self.sigma]
-
+            return dict(zip(['beta1','beta2','dayBetaChange','gamma','mu','sigma'],[self.beta1,self.beta2,self.dayBetaChange,self.gamma,self.mu,self.sigma]))
+        return dict(zip(['beta','gamma','mu','sigma'],[self.beta,self.gamma,self.mu,self.sigma]))
+    
+    def getEstimation(self):
+        return dict(zip(['S','E','I','R','Cumulative_cases_predict','new_cases_predict'],[self.S,self.E,self.I,self.R,self.ypred,self.NCpred]))
+    
     def computeCI(self, times=500, level=0.95):
         if self.isFit==False:
             print('\nModels is not fitted\n')
@@ -1416,10 +1405,6 @@ class SEIR(Models):
         copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
             copia.fit(y = casesSeries[i], bound = self.bound ,stand_error=self.stand_error, isBetaChange=self.isBetaChange,dayBetaChange = self.dayBetaChange,particles=self.particles,itera=self.itera,c1=self.c1,c2= self.c2, w= self.w,k=self.k,norm=self.norm)
-            if self.isPredict:
-                copia.predict(self.predictNumDays)
-            else:
-                copia.predict(0)
 
             self.__bypred.append(copia.ypred)
             self.__bS.append(copia.S)
@@ -1454,11 +1439,7 @@ class SEIRHUD(Models):
     ''' SEIRHU Model'''
     
     def __cal_EDO(self,x,beta,gammaH,gammaU,delta,h,ia0,is0,e0):
-            ND = len(x)-1
-            t_start = 0.0
-            t_end = ND
-            t_inc = 1
-            t_range = np.arange(t_start, t_end + t_inc, t_inc)
+            t_range = x
             beta = np.array(beta)
             delta = np.array(delta)
             def SIR_diff_eqs(INP, t, beta,gammaH,gammaU, delta,h):
@@ -1490,12 +1471,8 @@ class SEIRHUD(Models):
             return S,E,IA,IS,H,U,R,D,Nw
         
     def __cal_EDO_2(self,x,beta1,beta2,tempo,gammaH,gammaU,delta,h,ia0,is0,e0):
-            ND = len(x)-1
+            t_range = x
             
-            t_start = 0.0
-            t_end = ND
-            t_inc = 1
-            t_range = np.arange(t_start, t_end + t_inc, t_inc)
             def Hf(t):
                 h = 1.0/(1.0+ np.exp(-2.0*50*t))
                 return h
@@ -1534,49 +1511,96 @@ class SEIRHUD(Models):
             
             return S,E,IA,IS,H,U,R,D,Nw
     
-    def __objectiveFunction(self,coef,x ,y,d,hos,u,stand_error):
+    def __objectiveFunction(self,coef):
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
-        if stand_error:
-            if (self.isBetaChange) & (self.dayBetaChange==None):
-                for i in range(tam2):
-                    S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8],coef[i,9])
-                    soma[i]= (((y-(Nw))/np.sqrt(Nw+1))**2).mean()*self.yWeight +(((d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
-                    soma[i] = (soma[i] + (((hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if hos else soma[i]
-                    soma[i] = (soma[i] + (((u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if u else soma[i]
-            elif self.isBetaChange:
-                for i in range(tam2):
-                    S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange,coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8])
-                    soma[i]= (((y-(Nw))/np.sqrt(Nw+1))**2).mean()*(1-self.pesoMorte)+(((d-(D))/np.sqrt(D+1))**2).mean()*self.pesoMorte
-                    soma[i] = (soma[i] + (((hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if hos else soma[i]
-                    soma[i] = (soma[i] + (((u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if u else soma[i]
+        if self.fittingByCumulativeCases:
+            if self.stand_error:
+                if (self.isBetaChange) & (self.dayBetaChange==None):
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8],coef[i,9])
+                        soma[i]= (((self.y-(Nw))/np.sqrt(Nw+1))**2).mean()*self.yWeight +(((self.d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + (((self.hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + (((self.u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if self.u else soma[i]
+                elif self.isBetaChange:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange,coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8])
+                        soma[i]= (((self.y-(Nw))/np.sqrt(Nw+1))**2).mean()*self.yWeight+(((self.d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + (((self.hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + (((self.u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if self.u else soma[i]
+                else:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7])
+                        soma[i]= (((self.y-(Nw))/np.sqrt(Nw+1))**2).mean()*self.yWeight+(((self.d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + (((self.hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + (((self.u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if self.u else soma[i]
             else:
-                for i in range(tam2):
-                    S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7])
-                    soma[i]= (((y-(Nw))/np.sqrt(Nw+1))**2).mean()*(1-self.pesoMorte)+(((d-(D))/np.sqrt(D+1))**2).mean()*self.pesoMorte
-                    soma[i] = (soma[i] + (((hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if hos else soma[i]
-                    soma[i] = (soma[i] + (((u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if u else soma[i]
+                if (self.isBetaChange) & (self.dayBetaChange==None):
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8],coef[i,9])
+                        soma[i]= ((self.y-Nw)**2).mean()*self.yWeight+((self.d-D)**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + ((self.hos-(H))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + ((self.u-(U))**2).mean()*self.uWeight) if self.u else soma[i]
+                elif self.isBetaChange:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange,coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8])
+                        soma[i]= ((self.y-Nw)**2).mean()*self.yWeight+((self.d-D)**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + ((self.hos-(H))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + ((self.u-(U))**2).mean()*self.uWeight) if self.u else soma[i]
+                else:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7])
+                        soma[i]= ((self.y-Nw)**2).mean()*self.yWeight+((self.d-D)**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + ((self.hos-(H))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + ((self.u-(U))**2).mean()*self.uWeight) if self.u else soma[i]
         else:
-            if (self.isBetaChange) & (self.dayBetaChange==None):
-                for i in range(tam2):
-                    S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8],coef[i,9])
-                    soma[i]= ((y-(Nw))**2).mean()*(1-self.pesoMorte)+((d-(D))**2).mean()*self.pesoMorte
-                    soma[i] = (soma[i] + ((hos-(H))**2).mean()*self.hosWeight) if hos else soma[i]
-                    soma[i] = (soma[i] + ((u-(U))**2).mean()*self.uWeight) if u else soma[i]
-            elif self.isBetaChange:
-                for i in range(tam2):
-                    S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange,coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8])
-                    soma[i]= ((y-(Nw))**2).mean()*(1-self.pesoMorte)+((d-(D))**2).mean()*self.pesoMorte
-                    soma[i] = (soma[i] + ((hos-(H))**2).mean()*self.hosWeight) if hos else soma[i]
-                    soma[i] = (soma[i] + ((u-(U))**2).mean()*self.uWeight) if u else soma[i]
+            if self.stand_error:
+                if (self.isBetaChange) & (self.dayBetaChange==None):
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8],coef[i,9])
+                        aux = self._Models__changeCases(Nw) 
+                        soma[i]= (((self.NC-aux)/np.sqrt(aux+1))**2).mean()*self.yWeight +(((self.d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + (((self.hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + (((self.u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if self.u else soma[i]
+                elif self.isBetaChange:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange,coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8])
+                        aux = self._Models__changeCases(Nw) 
+                        soma[i]= (((self.NC-aux)/np.sqrt(aux+1))**2).mean()*self.yWeight+(((self.d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + (((self.hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + (((self.u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if self.u else soma[i]
+                else:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7])
+                        aux = self._Models__changeCases(Nw)
+                        soma[i]= (((self.NC-aux)/np.sqrt(aux+1))**2).mean()*self.yWeight+(((self.d-(D))/np.sqrt(D+1))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + (((self.hos-(H))/np.sqrt(H+1))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + (((self.u-(U))/np.sqrt(U+1))**2).mean()*self.uWeight) if self.u else soma[i]
             else:
-                for i in range(tam2):
-                    S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7])
-                    soma[i]= ((y-(Nw))**2).mean()*(1-self.pesoMorte)+((d-(D))**2).mean()*self.pesoMorte
-                    soma[i] = (soma[i] + ((hos-(H))**2).mean()*self.hosWeight) if hos else soma[i]
-                    soma[i] = (soma[i] + ((u-(U))**2).mean()*self.uWeight) if u else soma[i]
+                if (self.isBetaChange) & (self.dayBetaChange==None):
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8],coef[i,9])
+                        aux = self._Models__changeCases(Nw)
+                        soma[i]= ((self.NC-aux)**2).mean()*self.yWeight+((self.d-(D))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + ((self.hos-(H))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + ((self.u-(U))**2).mean()*self.uWeight) if self.u else soma[i]
+                elif self.isBetaChange:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(self.x,coef[i,0],coef[i,1],coef[i,2],self.dayBetaChange,coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7],coef[i,8])
+                        aux = self._Models__changeCases(Nw)
+                        soma[i]= ((self.NC-aux)**2).mean()*self.yWeight+((self.d-(D))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + ((self.hos-(H))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + ((self.u-(U))**2).mean()*self.uWeight) if self.u else soma[i]
+                else:
+                    for i in range(tam2):
+                        S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(self.x,coef[i,0],coef[i,1],coef[i,2],coef[i,3],coef[i,4],coef[i,5],coef[i,6],coef[i,7])
+                        aux = self._Models__changeCases(Nw)
+                        soma[i]= ((self.NC-aux)**2).mean()*self.yWeight+((self.d-(D))**2).mean()*self.dWeight
+                        soma[i] = (soma[i] + ((self.hos-(H))**2).mean()*self.hosWeight) if self.hos else soma[i]
+                        soma[i] = (soma[i] + ((self.u-(U))**2).mean()*self.uWeight) if self.u else soma[i]
         return soma
-    def fit(self, y, d, hos=None,u=None,yWeight=1,dWeight = 1,hosWeight=1,uWeight=1, kappa = 1/4,p = 0.2,gammaA = 1/3.5, gammaS = 1/4.001, muH = 0.15,
+    
+    def fit(self, x, y, d, fittingByCumulativeCases=True, hos=None,u=None,yWeight=1,dWeight = 1,hosWeight=1,uWeight=1, kappa = 1/4,p = 0.2,gammaA = 1/3.5, gammaS = 1/4.001, muH = 0.15,
             muU = 0.4,xi = 0.53,omegaU = 0.29,omegaH=0.14 , bound = [[0,1/8,1/12,0,0],[2,1/4,1/3,0.7,0.35]],
             stand_error = True, isBetaChange = False, dayBetaChange = None, particles = 300, itera = 1000, c1 = 0.1, c2 = 0.3, w = 0.9, k = 5, norm = 2):
         '''
@@ -1635,9 +1659,18 @@ class SEIRHUD(Models):
         self.omegaH = omegaH
         self.isBetaChange = isBetaChange
         self.dayBetaChange = dayBetaChange
-        self.y = y
-        self.d = d
-        self.x = x
+        self.y = np.array(y)
+        self.d = np.array(d)
+        self.x = np.array(x)
+        if hos:
+            self.hos = np.array(hos)
+        else:
+            self.hos = hos
+        if u:
+            self.u = np.array(u)
+        else:
+           self.u = u 
+        self.fittingByCumulativeCases = fittingByCumulativeCases
         self.stand_error = stand_error
         self.particles = particles
         self.itera = itera
@@ -1646,10 +1679,8 @@ class SEIRHUD(Models):
         self.w = w
         self.k = k
         self.norm = norm
-        df = np.array(y)
-        dd = np.array(d)
-        dhos = np.array(hos)
-        du = np.array(u)
+        self.NC = self._Models__changeCases(self.y)
+        
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
         optimizer = None
         if bound==None:
@@ -1684,24 +1715,12 @@ class SEIRHUD(Models):
         self.bound = bound
         #__cal_EDO(self,x,beta,gammaH,gammaU,delta,h,ia0,is0,e0)
         #__cal_EDO_2(self,x,beta1,beta2,tempo,gammaH,gammaU,delta,h,ia0,is0,e0)
+        cost, pos = optimizer.optimize(self.__objectiveFunction,itera,n_processes=self.nCores)
         if self.isBetaChange:
             #cost, pos = optimizer.optimize(self.objectiveFunction,itera, x = x,y=df,d=dd,stand_error=stand_error,n_processes=self.numeroProcessadores, verbose = True)
-            cost, pos = optimizer.optimize(self.__objectiveFunction,itera, x = x,y=df,d=dd,hos=dhos,u=du,stand_error=stand_error,n_processes=self.nCores)
-        else:
-            #cost, pos = optimizer.optimize(self.objectiveFunction, itera, x = x,y=df,d=dd,stand_error=stand_error,n_processes=self.numeroProcessadores, verbose = True)
-            cost, pos = optimizer.optimize(self.__objectiveFunction, itera, x = x,y=df,d=dd,hos=dhos,u=du,stand_error=stand_error,n_processes=self.nCores)
-            self.beta = pos[0]
-            self.gammaH = pos[1]
-            self.gammaU = pos[2]
-            self.delta = pos[3]
-            self.h = pos[4]
-            self.ia0 = pos[5]
-            self.is0 = pos[6]
-            self.e0 = pos[7]
-        if self.isBetaChange:
+            
             self.beta1 = pos[0]
             self.beta2 = pos[1]
-            
             if self.dayBetaChange==None:
                 self.dayBetaChange = pos[2]
                 self.gammaH = pos[3]
@@ -1720,9 +1739,20 @@ class SEIRHUD(Models):
                 self.ia0 = pos[6]
                 self.is0 = pos[7]
                 self.e0 = pos[8]
+        else:
+            #cost, pos = optimizer.optimize(self.objectiveFunction, itera, x = x,y=df,d=dd,stand_error=stand_error,n_processes=self.numeroProcessadores, verbose = True)
+            self.beta = pos[0]
+            self.gammaH = pos[1]
+            self.gammaU = pos[2]
+            self.delta = pos[3]
+            self.h = pos[4]
+            self.ia0 = pos[5]
+            self.is0 = pos[6]
+            self.e0 = pos[7]  
         self.rmse = cost
         self.cost_history = optimizer.cost_history
         self.isFit=True
+        self.predict(0)
 
     def predict(self,numDays):
         ''' x = dias passados do dia inicial 1'''
@@ -1747,8 +1777,7 @@ class SEIRHUD(Models):
         self.IS = IS
         self.H = H
         self.U = U
-        self.R = R
-        self.isPredict=True         
+        self.R = R         
         return self.ypred
 
 #Compute R(t)
@@ -1825,9 +1854,12 @@ class SEIRHUD(Models):
 
     def getCoef(self):
         if self.isBetaChange:
-            return ['beta1','beta2','dayBetaChange','gammaH','gammaU', 'delta','h','ia0','is0','e0'],[self.beta1,self.beta2,self.dayBetaChange,self.gammaH,self.gammaU,self.delta,self.h,self.ia0,self.is0,self.e0]
-        return ['beta','gammaH','gammaU', 'delta','h','ia0','is0','e0'],[self.beta,self.gammaH,self.gammaU,self.delta,self.h,self.ia0,self.is0,self.e0]
-
+            return dict(zip(['beta1','beta2','dayBetaChange','gammaH','gammaU', 'delta','h','ia0','is0','e0'],[self.beta1,self.beta2,self.dayBetaChange,self.gammaH,self.gammaU,self.delta,self.h,self.ia0,self.is0,self.e0]))
+        return dict(zip(['beta','gammaH','gammaU', 'delta','h','ia0','is0','e0'],[self.beta,self.gammaH,self.gammaU,self.delta,self.h,self.ia0,self.is0,self.e0]))
+    
+    def getEstimation(self):
+        return dict(zip(['S','E','IA','IS','H','U','R','D','Cumulative_cases_predict','new_cases_predict'],[self.S,self.E,self.IA,self.IS,self.H,self.U,self.R,self.D,self.ypred,self.NCpred]))
+    
     def plotFit(self):
         plt.style.use('seaborn-deep')
         fig, axes = plt.subplots(figsize = (18,8))
@@ -1908,10 +1940,7 @@ class SEIRHUD(Models):
                         kappa = self.kappa,p = self.p,gammaA = self.gammaA, gammaS = self.gammaS, muH = self.muH,muU = self.muU,xi = self.xi,omegaU = self.omegaU,omegaH=self.omegaH , bound = self.bound,
                         stand_error = self.stand_error, isBetaChange = self.isBetaChange, dayBetaChange = self.dayBetaChange, particles = self.particles, itera = self.itera, c1 = self.c1, c2 = self.c2, w = self.w, k = self.k, norm = self.norm)
             
-            if self.isPredict:
-                copia.predict(self.predictNumDays)
-            else:
-                copia.predict(0)
+           
             self.__bypred.append(copia.ypred)
             self.__bdpred.append(copia.dpred)
             self.__bH.append(copia.H)
