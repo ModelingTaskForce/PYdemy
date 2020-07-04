@@ -56,7 +56,7 @@ class Models:
             return False
         return True
                
-    def __changeCases(y):
+    def __changeCases(self, y):
         tam = len(y)
         res = np.ones(tam)
         res[0] = y[0]
@@ -191,7 +191,7 @@ class SIR(Models):
             return S,I,R
     
     
-    def __residuals(self,coef):
+    def _residuals(self,coef):
         if (self.isBetaChange) & (self.dayBetaChange==None):
             S,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],coef[2],coef[3])
         elif self.isBetaChange:
@@ -209,14 +209,14 @@ class SIR(Models):
             aux2 = aux2 / np.sqrt(aux+1)
         return aux2
     
-    def __objectiveFunction(self,coef):
+    def _objectiveFunction(self,coef):
         tam2 = len(coef[:,0])
         soma = np.zeros(tam2)
         for i in range(tam2):
-            soma[i] = ((self.__residuals(coef[i]))**2).mean()
+            soma[i] = ((self._residuals(coef[i]))**2).mean()
         return soma
     
-    def _validateBound(self, bound):
+    def __validateBound(self, bound):
         if len(bound)!=2:
            raise ValueError("Bound of Incorrect size")
            return False
@@ -251,13 +251,10 @@ class SIR(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
-       
+        self.isBetaChange = isBetaChange
+        self.dayBetaChange = dayBetaChange       
         if not self._Models__validadeVar(y,'y'):
             return
-        if not self.__validateBound(bound):
-            return
-        self.isBetaChange = isBetaChange
-        self.dayBetaChange = dayBetaChange
         self.y = np.array(y)
         self.x = np.array(x)
         self.fittingByCumulativeCases = fittingByCumulativeCases
@@ -270,8 +267,9 @@ class SIR(Models):
         self.k = k
         self.norm = norm
         self.NC = self._Models__changeCases(self.y)
-        
-        self.I0 = self.y[0]
+        if not self.__validateBound(bound):
+            return
+        self.I0 = self.y[0] / self.N
         self.S0 = 1-self.I0
         self.R0 = 0
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
@@ -285,11 +283,10 @@ class SIR(Models):
             else:
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=2, options=options)                
         else:
-            self._prepare_bound(bound)
-            optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=len(bound[0]), options=options,bounds=self.bound)
+            optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=len(self.bound[0]), options=options,bounds=self.bound)
         
         
-        cost, pos = optimizer.optimize(self.__objectiveFunction, itera,n_processes=self.nCores)
+        cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
         
         if isBetaChange:
             self.beta1 = pos[0]
@@ -316,13 +313,14 @@ class SIR(Models):
         if self.isFit==False:
             print('\nModels is not fitted\n')
             return None
-        x = range(1,len(self.y)+1+numDays) 
+        x = np.arange(self.x[0], self.x[-1] + 1+numDays) 
         self.predictNumDays = numDays
         if self.isBetaChange:
             S,I,R = self.__cal_EDO_2(x,self.beta1,self.gamma,self.beta2,self.dayBetaChange)
         else:
             S,I,R = self.__cal_EDO(x,self.beta,self.gamma)
         self.ypred = I+R
+        self.xpred = x
         self.S = S
         self.I = I
         self.R = R
