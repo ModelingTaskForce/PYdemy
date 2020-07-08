@@ -2,7 +2,6 @@ README.md
 setup.py
 PYdemy/__init__.py
 PYdemy/models.py
-PYdemy/modelsv1.py
 PYdemy.egg-info/PKG-INFO
 PYdemy.egg-info/SOURCES.txt
 PYdemy.egg-info/dependency_links.txt
