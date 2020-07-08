@@ -23,7 +23,7 @@ from datetime import date, timedelta
 class Models:
     def __init__(self,popSize,nCores=None):
         self.isFit=False
-        self.isBetaChange = False
+        self.BetaChange = 0
         self.isCI = False
         self.isRT = False
         self.N = popSize
@@ -145,8 +145,7 @@ class SIR(Models):
     
     def __cal_EDO(self,x,beta,gamma):
             t_range = x
-            beta = np.array(beta)
-            gamma = np.array(gamma)
+
             def SIR_diff_eqs(INP, t, beta, gamma):
                 Y = np.zeros((3))
                 V = INP
@@ -164,25 +163,26 @@ class SIR(Models):
             
             return S,I,R
         
-    def __cal_EDO_2(self,x,beta1,gamma,beta2,tempo):
+    def __cal_EDO_2(self,x,tVar,betaVar,gamma):
             t_range = x
             
-            def beta(t,t1,beta1,beta2):
-                if t<t1:
-                    return beta1
-                return beta2
+            def beta(t,tVar,betaVar):
+                for i in range(len(tVar)):
+                    if t<tVar[i]:
+                        return betaVar[i]
+                return betaVar[i+1]
 
-            gamma = np.array(gamma)
-            def SIR_diff_eqs(INP, t, beta1, gamma,beta2,t1):
+            
+            def SIR_diff_eqs(INP, t, tVar,betaVar, gamma):
                 Y = np.zeros((3))
                 V = INP
-                Y[0] = - beta(t,t1,beta1,beta2) * V[0] * V[1]                 #S
-                Y[1] = beta(t,t1,beta1,beta2) * V[0] * V[1] - gamma * V[1]    #I
+                Y[0] = - beta(t,tVar,betaVar) * V[0] * V[1]                 #S
+                Y[1] = beta(t,tVar,betaVar) * V[0] * V[1] - gamma * V[1]    #I
                 Y[2] = gamma * V[1]                         #R
                 
                 return Y
             result_fit = spi.odeint(SIR_diff_eqs, (self.S0, self.I0,self.R0), t_range,
-                                    args=(beta1, gamma,beta2,tempo))
+                                    args=(tVar, betaVar,gamma))
             
             S=result_fit[:, 0]*self.N
             R=result_fit[:, 2]*self.N
@@ -192,10 +192,21 @@ class SIR(Models):
     
     
     def _residuals(self,coef):
-        if (self.isBetaChange) & (self.dayBetaChange==None):
-            S,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],coef[2],coef[3])
-        elif self.isBetaChange:
-            S,I,R = self.__cal_EDO_2(self.x,coef[0],coef[1],coef[2],self.dayBetaChange)
+        if (self.BetaChange!=0) & (self.dayBetaChange==None):
+            tVar = np.ones(self.BetaChange)
+            betaVar = np.ones(self.BetaChange+1)
+            for i in range(self.BetaChange):
+                tVar[i] = coef[i]
+                betaVar[i] = coef[self.BetaChange+i]
+            betaVar[self.BetaChange] = coef[self.BetaChange*2]
+                
+            S,I,R = self.__cal_EDO_2(self.x,tVar,betaVar,coef[self.BetaChange*2+1])
+        elif self.dayBetaChange!=None:
+            tVar = self.dayBetaChange
+            betaVar = np.ones(self.BetaChange+1)
+            for i in range(self.BetaChange+1):
+                betaVar[i] = coef[i]      
+            S,I,R = self.__cal_EDO_2(self.x,tVar,betaVar,coef[self.BetaChange+1])
         else:
             S,I,R = self.__cal_EDO(self.x,coef[0],coef[1])
         aux = I+R
@@ -217,33 +228,57 @@ class SIR(Models):
         return soma
     
     def __validateBound(self, bound):
+        if bound==None:
+            self.bound = bound
+            return True
         if len(bound)!=2:
            raise ValueError("Bound of Incorrect size")
            return False
-        if (self.isBetaChange) & (self.dayBetaChange==None):
+        if (self.BetaChange!=0) & (self.dayBetaChange==None):
             if len(bound[0])==2:
-                bound = (bound[0].copy(),bound[1].copy())
-                bound[0].append(bound[0][0])
-                bound[1].append(bound[1][0])
-                bound[0].append(self.x[4])
-                bound[1].append(self.x[-5])
-                bound[0][3] = self.x[4]
-                bound[1][3] = self.x[-5]
-            elif len(bound[0]) != 4:
+                b1 = bound[0][0]
+                b2 = bound[1][0]
+                g1 = bound[0][1]
+                g2 = bound[1][1]
+                bound2 = ([],[])
+                for i in range(self.BetaChange+1):
+                    bound2[0].insert(0,b1)
+                    bound2[1].insert(0,b2)
+                for i in range(self.BetaChange):
+                    bound2[0].insert(0,self.x[1])
+                    bound2[1].insert(0,self.x[-2])
+                bound2[0].append(g1)
+                bound2[1].append(g2)
+                self.bound = bound2
+                return True
+                
+            if len(bound[0]) != self.BetaChange*2+2:
                 raise ValueError("Bound of Incorrect size")
                 return False
-        elif self.isBetaChange:
+        elif self.BetaChange!=0:
             if len(bound[0])==2:
-                bound = (bound[0].copy(),bound[1].copy())
-                bound[0].append(bound[0][1])
-                bound[1].append(bound[1][1])
-            elif len(bound[0]) != 3:
+                b1 = bound[0][0]
+                b2 = bound[1][0]
+                g1 = bound[0][1]
+                g2 = bound[1][1]
+                bound2 = ([],[])
+                for i in range(self.BetaChange+1):
+                    bound2[0].insert(0,b1)
+                    bound2[1].insert(0,b2)
+                bound2[0].append(g1)
+                bound2[1].append(g2)
+                bound[0] = bound2[0]
+                bound[1] = bound2[1]
+                self.bound = bound
+                return True
+            
+            elif len(bound[0]) != self.BetaChange+2:
                 raise ValueError("Bound of Incorrect size")
                 return False
         self.bound = bound
         return True
     
-    def fit(self,x, y ,fittingByCumulativeCases=True, bound = ([0,1/21],[1,1/5]),stand_error=True, isBetaChange=False, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
+    def fit(self,x, y ,fittingByCumulativeCases=True, bound = ([0,1/21],[1,1/5]),stand_error=True, BetaChange=0, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
         '''
         x = dias passados do dia inicial 1
         y = numero de casos
@@ -251,8 +286,11 @@ class SIR(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
-        self.isBetaChange = isBetaChange
-        self.dayBetaChange = dayBetaChange       
+        self.BetaChange = BetaChange
+        if dayBetaChange==None:   
+            self.dayBetaChange = dayBetaChange 
+        else:
+            self.dayBetaChange = np.array(dayBetaChange)
         if not self._Models__validadeVar(y,'y'):
             return
         self.y = np.array(y)
@@ -273,34 +311,40 @@ class SIR(Models):
         self.S0 = 1-self.I0
         self.R0 = 0
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
-        optimizer = None
-        if bound==None:
-            self.bound = bound
-            if (isBetaChange) & (dayBetaChange==None):
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=4, options=options)
-            elif isBetaChange:
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=3, options=options)
+        if self.BetaChange!=0:
+            if self.dayBetaChange==None:
+                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=self.BetaChange*2+2, options=options,bounds=self.bound)
+                cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
+                beta = []
+                dayBetaChange = []
+                for i in range(self.BetaChange):
+                    dayBetaChange.append(pos[i])
+                    beta.append(pos[self.BetaChange+i])
+                beta.append(pos[self.BetaChange*2])
+                self.gamma = pos[self.BetaChange*2+1]
+                self.dayBetaChange = np.array(dayBetaChange)
+                self.beta = np.array(beta)
+                self.rmse = cost
+                self.cost_history = optimizer.cost_history
+                
             else:
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=2, options=options)                
+                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=self.BetaChange+2, options=options,bounds=self.bound)
+                cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
+                beta = []
+                for i in range(len(self.BetaChange)+1):
+                    beta.append(pos[i])
+                beta.append(pos[self.BetaChange*2])
+                self.gamma = pos[self.BetaChange+1]
+                self.dayBetaChange = np.array(dayBetaChange)
+                self.beta = np.array(beta)
+                self.rmse = cost
+                self.cost_history = optimizer.cost_history
         else:
-            optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=len(self.bound[0]), options=options,bounds=self.bound)
-        
-        
-        cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
-        
-        if isBetaChange:
-            self.beta1 = pos[0]
+            optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=2, options=options,bounds=self.bound)
+            cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
+            beta = [pos[0]]
+            self.beta = np.array(beta)
             self.gamma = pos[1]
-            self.beta2 = pos[2]
-            if dayBetaChange==None:
-                self.dayBetaChange = pos[3]
-            else:
-                self.dayBetaChange = dayBetaChange
-        else:
-            self.beta = pos[0]
-            self.gamma = pos[1]
-        self.rmse = cost
-        self.cost_history = optimizer.cost_history
         self.isFit=True
         self.predict(0)
         
@@ -315,10 +359,10 @@ class SIR(Models):
             return None
         x = np.arange(self.x[0], self.x[-1] + 1+numDays) 
         self.predictNumDays = numDays
-        if self.isBetaChange:
-            S,I,R = self.__cal_EDO_2(x,self.beta1,self.gamma,self.beta2,self.dayBetaChange)
-        else:
+        if self.BetaChange==0:
             S,I,R = self.__cal_EDO(x,self.beta,self.gamma)
+        else:
+            S,I,R = self.__cal_EDO_2(x,self.dayBetaChange,self.beta,self.gamma)
         self.ypred = I+R
         self.xpred = x
         self.S = S
