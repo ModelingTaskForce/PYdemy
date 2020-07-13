@@ -140,6 +140,9 @@ class Models:
         for i in range(itera):
             for a in range(n_particles):
                 my_swarm.position[a][0:BetaChange] = sorted(my_swarm.position[a][0:BetaChange])
+                for c in range(1,self.BetaChange):
+                    if my_swarm.position[a][c-1]+5>=my_swarm.position[a][c]:
+                        my_swarm.position[a][c]=my_swarm.position[a][c]+5
             my_swarm.current_cost = objetive_function(my_swarm.position)
             my_swarm.pbest_pos, my_swarm.pbest_cost = P.operators.compute_pbest(my_swarm)
             #my_swarm.current_cost[np.isnan(my_swarm.current_cost)]=np.nanmax(my_swarm.current_cost)
@@ -148,7 +151,7 @@ class Models:
             
             my_swarm.best_pos, my_swarm.best_cost = my_topology.compute_gbest(my_swarm,options['p'],options['k'])
             if i%20==0:
-                print('Iteration: {} | my_swarm.best_cost: {:.4f}'.format(i+1, my_swarm.best_cost))
+                print('Iteration: {} | my_swarm.best_cost: {:.4f} | days: {}'.format(i+1, my_swarm.best_cost, str(my_swarm.pbest_pos[my_swarm.pbest_cost.argmin()])))
             my_swarm.velocity = my_topology.compute_velocity(my_swarm,  bounds=bound)
             my_swarm.position = my_topology.compute_position(my_swarm,bounds=bound)
         final_best_cost = my_swarm.best_cost.copy()
@@ -270,8 +273,8 @@ class SIR(Models):
                     bound2[0].insert(0,b1)
                     bound2[1].insert(0,b2)
                 for i in range(self.BetaChange):
-                    bound2[0].insert(0,self.x[1])
-                    bound2[1].insert(0,self.x[-2])
+                    bound2[0].insert(0,self.x[1]+(i+1)*5)
+                    bound2[1].insert(0,self.x[-2]-(self.BetaChange-i)*5)
                 bound2[0].append(g1)
                 bound2[1].append(g2)
                 self.bound = bound2
