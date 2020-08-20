@@ -18,6 +18,8 @@ from numbers import Number
 import copy
 import matplotlib.gridspec as gridspec
 from datetime import date, timedelta
+import pyswarms.backend as P
+from pyswarms.backend.topology import Ring
 
 
 class Models:
@@ -129,6 +131,32 @@ class Models:
         file = open(fileName,'rb')
         model = pk.load(file)
         return model
+    def __fitNBeta(self,dim,n_particles,itera,options,objetive_function,BetaChange,bound):
+        my_topology = Ring()
+        my_swarm = P.create_swarm(n_particles=n_particles, dimensions=dim, options=options,bounds=bound)
+        my_swarm.pbest_cost = np.full(n_particles, np.inf)
+        my_swarm.best_cost = np.inf
+        
+        for i in range(itera):
+            for a in range(n_particles):
+                my_swarm.position[a][0:BetaChange] = sorted(my_swarm.position[a][0:BetaChange])
+                for c in range(1,self.BetaChange):
+                    if my_swarm.position[a][c-1]+5>=my_swarm.position[a][c]:
+                        my_swarm.position[a][c]=my_swarm.position[a][c]+5
+            my_swarm.current_cost = objetive_function(my_swarm.position)
+            my_swarm.pbest_pos, my_swarm.pbest_cost = P.operators.compute_pbest(my_swarm)
+            #my_swarm.current_cost[np.isnan(my_swarm.current_cost)]=np.nanmax(my_swarm.current_cost)
+            #my_swarm.pbest_cost = objetive_function(my_swarm.pbest_pos)
+            
+            
+            my_swarm.best_pos, my_swarm.best_cost = my_topology.compute_gbest(my_swarm,options['p'],options['k'])
+            if i%20==0:
+                print('Iteration: {} | my_swarm.best_cost: {:.4f} | days: {}'.format(i+1, my_swarm.best_cost, str(my_swarm.pbest_pos[my_swarm.pbest_cost.argmin()])))
+            my_swarm.velocity = my_topology.compute_velocity(my_swarm,  bounds=bound)
+            my_swarm.position = my_topology.compute_position(my_swarm,bounds=bound)
+        final_best_cost = my_swarm.best_cost.copy()
+        final_best_pos = my_swarm.pbest_pos[my_swarm.pbest_cost.argmin()].copy()
+        return final_best_pos,final_best_cost
 
 class SIR(Models):
     ''' SIR Model'''
@@ -245,8 +273,8 @@ class SIR(Models):
                     bound2[0].insert(0,b1)
                     bound2[1].insert(0,b2)
                 for i in range(self.BetaChange):
-                    bound2[0].insert(0,self.x[1])
-                    bound2[1].insert(0,self.x[-2])
+                    bound2[0].insert(0,self.x[1]+(i+1)*5)
+                    bound2[1].insert(0,self.x[-2]-(self.BetaChange-i)*5)
                 bound2[0].append(g1)
                 bound2[1].append(g2)
                 self.bound = bound2
@@ -278,7 +306,7 @@ class SIR(Models):
         self.bound = bound
         return True
     
-    def fit(self,x, y ,fittingByCumulativeCases=True, bound = ([0,1/21],[1,1/5]),stand_error=True, BetaChange=0, dayBetaChange = None,particles=50,itera=500,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
+    def fit(self,x, y ,fittingByCumulativeCases=True, bound = ([0,1/21],[2,1/5]),stand_error=True, BetaChange=0, dayBetaChange = None,particles=100,itera=1000,c1= 0.5, c2= 0.3, w = 0.9, k=3,norm=1):
         '''
         x = dias passados do dia inicial 1
         y = numero de casos
@@ -313,8 +341,16 @@ class SIR(Models):
         options = {'c1': c1, 'c2': c2, 'w': w,'k':k,'p':norm}
         if self.BetaChange!=0:
             if self.dayBetaChange==None:
-                optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=self.BetaChange*2+2, options=options,bounds=self.bound)
-                cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
+                if self.BetaChange>=2:
+                #optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=self.BetaChange*2+2, options=options,bounds=self.bound)
+                #cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
+                #__fitNBeta(self,dim,n_particles,itera,options,objetive_function,**kwargs)
+                    pos,cost = self._Models__fitNBeta(dim=self.BetaChange*2+2,n_particles=self.particles,itera=self.itera,options=options,objetive_function=  self._objectiveFunction,BetaChange= self.BetaChange,bound=self.bound)
+                else:
+                    optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=self.BetaChange*2+2, options=options,bounds=self.bound)
+                    cost, pos = optimizer.optimize(self._objectiveFunction, itera,n_processes=self.nCores)
+
+                print('posi='+str(pos)+'\n'+str(cost))
                 beta = []
                 dayBetaChange = []
                 for i in range(self.BetaChange):
@@ -325,7 +361,7 @@ class SIR(Models):
                 self.dayBetaChange = np.array(dayBetaChange)
                 self.beta = np.array(beta)
                 self.rmse = cost
-                self.cost_history = optimizer.cost_history
+                #self.cost_history = optimizer.cost_history
                 
             else:
                 optimizer = ps.single.LocalBestPSO(n_particles=particles, dimensions=self.BetaChange+2, options=options,bounds=self.bound)
