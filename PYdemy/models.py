@@ -383,7 +383,7 @@ class SIR(Models):
         if self.BetaChange>0:        
             S,I,R = self.__cal_EDO_2(self.x,dayBetaChange,beta,gamma,I0,R0)
         else:
-            S,I,R = self.__cal_EDO(self.x,beta[0],gamma,I0,R)
+            S,I,R = self.__cal_EDO(self.x,beta[0],gamma,I0,R0)
         aux = I+R
         if self.fittingByCumulativeCases:
             aux2 = self.y-aux 
@@ -435,8 +435,11 @@ class SIR(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
+        if not self._Models__validadeVar(y,'y'):
+            return
+        self.y = np.array(y)
         if I0==None:
-            I0=self.y[0] / self.N
+            I0=y[0] / self.N
         if R0==None:
            R0=0      
         self.coef = self.Coefficient(BetaChange,standarPSO)
@@ -463,9 +466,7 @@ class SIR(Models):
             return
         if not self.coef.addVar('R0',R0):
             return
-        if not self._Models__validadeVar(y,'y'):
-            return
-        self.y = np.array(y)
+        
         self.x = np.array(x)
         self.fittingByCumulativeCases = fittingByCumulativeCases
         self.stand_error = stand_error
@@ -1071,6 +1072,10 @@ class SEIR(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
+        if not self._Models__validadeVar(y,'y'):
+            return
+
+        self.y = np.array(y)
         if I0==None:
             I0=self.y[0] / self.N
         if E0==None:
@@ -1107,10 +1112,6 @@ class SEIR(Models):
             return
         if not self.coef.addVar('R0',R0):
             return
-        if not self._Models__validadeVar(y,'y'):
-            return
-
-        self.y = np.array(y)
         self.x = np.array(x)
         self.fittingByCumulativeCases = fittingByCumulativeCases
         self.stand_error = stand_error
@@ -1727,6 +1728,7 @@ class SEIIHURD(Models):
         
         bound => (lista_min_bound, lista_max_bound)
         '''
+        
         if not self._Models__validadeVar(y,'y'):
             return
         if not self._Models__validadeVar(d,'d'):
@@ -1931,7 +1933,7 @@ class SEIIHURD(Models):
         if self.BetaChange>0:
             S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO_2(x,self.dayBetaChange,self.beta,self.gammaH,self.gammaU,self.delta,self.kappa,self.h,self.p,self.gammaA,self.gammaS,self.muH,self.muU,self.xi,self.omegaU,self.omegaH,self.E0,self.Ia0,self.Is0,self.H0,self.U0,self.R0,self.D0)
         else:
-            S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(x,self.beta,self.gammaH,self.gammaU,self.delta,self.kappa,self.h,self.p,self.gammaA,self.gammaS,self.muH,self.muU,self.xi,self.omegaU,self.omegaH,self.E0,self.Ia0,self.Is0,self.H0,self.U0,self.R0,self.D0)
+            S,E,IA,IS,H,U,R,D,Nw = self.__cal_EDO(x,self.beta[0],self.gammaH,self.gammaU,self.delta,self.kappa,self.h,self.p,self.gammaA,self.gammaS,self.muH,self.muU,self.xi,self.omegaU,self.omegaH,self.E0,self.Ia0,self.Is0,self.H0,self.U0,self.R0,self.D0)
         self.ypred = Nw
         self.dpred = D
         self.S = S
