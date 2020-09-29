@@ -421,7 +421,6 @@ class SIR(Models):
         if self.BetaChange>0:
             self.dayBetaChange = dic['dayBetaChange']
         self.gamma = dic['gamma']
-        self.S0=dic['S0']
         self.I0=dic['I0']
         self.R0=dic['R0']
         self.predict(0)    
