@@ -2322,9 +2322,18 @@ class SEIIHURD(Models):
         for k in listCoef:
             self._bCoef[k]=[]
         casesSeries = self._Models__genBoot(self.y, times)
+        deathSeries = self._Models__genBoot(self.d, times)
+        if self.hos!=None:
+            casesHos = self._Models__genBoot(self.hos, times)
+        else:
+            caseHos = np.full(times,None)
+        if self.u != None:
+            casesU = self._Models__genBoot(self.u, times)
+        else:
+            caseU = np.full(times,None)
         copia = copy.deepcopy(self)
         for i in range(0,len(casesSeries)):
-            copia.__fit(x=self.x, y=casesSeries[i])
+            copia.__fit(x=self.x, y=casesSeries[i],d=deathSeries[i],hos=caseHos[i], u=caseU[i])
             copiaCoef = copia.getCoef()
             for k in listCoef:
                 self._bCoef[k].append(copiaCoef[k])
@@ -2336,7 +2345,7 @@ class SEIIHURD(Models):
             self._bH.append(copia.H)
             self._bU.append(copia.U)
             self._bR.append(copia.R)
-            self._bD.append(copia.D)
+            self._bD.append(copia.dpred)
             self._bNCpred.append(copia.NCpred)
                        
         
