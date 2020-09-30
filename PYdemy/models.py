@@ -18,8 +18,6 @@ from numbers import Number
 import copy
 import matplotlib.gridspec as gridspec
 from datetime import date, timedelta
-import pyswarms.backend as P
-from pyswarms.backend.topology import Ring
 
 
 def load(fileName):
@@ -46,7 +44,6 @@ class Models:
                 return False
         if name=='y':
             flag = 0
-            i = 1
             aux=0
             for v in var:
                 if aux>v:
@@ -2192,6 +2189,47 @@ class SEIIHURD(Models):
             fig.savefig(SaveFile,bbox_inches='tight')
         
         plt.show()
+        
+    def ArangePlots(self,CompartmentPlots):
+        
+        PlotList=[]
+        LabelList=[]
+        for i in CompartmentPlots:
+        
+            if i=='S':
+                PlotList.append(self.S)
+                LabelList.append('Susceptible individuals')
+            elif i=='E':
+                PlotList.append(self.E)
+                LabelList.append('Exposed individuals')
+            elif i=='IA':
+                PlotList.append(self.IA)
+                LabelList.append('Infected Asymptomatic')
+            elif i=='IS':
+                PlotList.append(self.IS)
+                LabelList.append('Infected Symptomatic')
+            elif i=='H':
+                PlotList.append(self.H)
+                LabelList.append('Hospitalized individuals')
+            elif i=='U':
+                PlotList.append(self.U)
+                LabelList.append('Intensive Care Unit')
+            elif i=='R':
+                PlotList.append(self.R)
+                LabelList.append('Recovered individuals')
+            elif i=='D':
+                PlotList.append(self.dpred)
+                LabelList.append('Death')
+            elif i=='Y':
+                PlotList.append(self.ypred)
+                LabelList.append('Cumulative cases')
+            elif i=='NC':
+                PlotList.append(self.NCpred)
+                LabelList.append('New cases')
+            else:
+                print('\nThere is no compartment such as "'+str(i)+'" in the model.\n')
+               
+        return PlotList,LabelList
 #Compute R(t)
     def Rt(self, cutoof):
         #Auxiliary functions to compute R(t)
